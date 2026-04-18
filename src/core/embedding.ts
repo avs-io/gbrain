@@ -2,28 +2,145 @@
  * Embedding Service
  * Ported from production Ruby implementation (embedding_service.rb, 190 LOC)
  *
- * OpenAI text-embedding-3-large at 1536 dimensions.
+ * Backend selection (env-based):
+ *   OLLAMA_EMBEDDING_MODEL=nomic-embed-text  → Ollama (local, zero cost)
+ *   OPENAI_API_KEY set, no OLLAMA_EMBEDDING_MODEL → OpenAI text-embedding-3-large
+ *   Neither set → keyword-only search (graceful degradation)
+ *
+ * Ollama: nomic-embed-text at 768 dimensions, F16
+ * OpenAI: text-embedding-3-large at 1536 dimensions
+ *
  * Retry with exponential backoff (4s base, 120s cap, 5 retries).
  * 8000 character input truncation.
  */
 
 import OpenAI from 'openai';
 
-const MODEL = 'text-embedding-3-large';
-const DIMENSIONS = 1536;
+// --- Configuration ---
+
+const OLLAMA_URL = process.env.OLLAMA_HOST || 'http://localhost:11434';
+
+const USE_OLLAMA = !!process.env.OLLAMA_EMBEDDING_MODEL;
+const USE_OPENAI = !USE_OLLAMA && !!process.env.OPENAI_API_KEY;
+
+const OLLAMA_MODEL = process.env.OLLAMA_EMBEDDING_MODEL || 'nomic-embed-text';
+const OPENAI_MODEL = 'text-embedding-3-large';
+
+const OLLAMA_DIMENSIONS = 768;
+const OPENAI_DIMENSIONS = 1536;
+
 const MAX_CHARS = 8000;
 const MAX_RETRIES = 5;
 const BASE_DELAY_MS = 4000;
 const MAX_DELAY_MS = 120000;
-const BATCH_SIZE = 100;
+const BATCH_SIZE = 100; // Ollama embed API handles batches natively
 
-let client: OpenAI | null = null;
+// --- Ollama Embedding Client ---
 
-function getClient(): OpenAI {
-  if (!client) {
-    client = new OpenAI();
+interface OllamaEmbedResponse {
+  model: string;
+  embeddings: number[][];
+  total_duration?: number;
+  load_duration?: number;
+  prompt_eval_count?: number;
+}
+
+async function ollamaEmbed(text: string): Promise<Float32Array> {
+  const truncated = text.slice(0, MAX_CHARS);
+  const body = JSON.stringify({
+    model: OLLAMA_MODEL,
+    prompt: truncated,
+    options: {
+      num_batch: 1,
+    },
+  });
+
+  const res = await fetch(`${OLLAMA_URL}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ollama embed failed (${res.status}): ${text}`);
   }
-  return client;
+
+  const data: OllamaEmbedResponse = await res.json();
+  if (!data.embeddings || data.embeddings.length === 0) {
+    throw new Error('Ollama returned empty embeddings');
+  }
+
+  return new Float32Array(data.embeddings[0]);
+}
+
+async function ollamaEmbedBatch(texts: string[]): Promise<Float32Array[]> {
+  const truncated = texts.map(t => t.slice(0, MAX_CHARS));
+  const body = JSON.stringify({
+    model: OLLAMA_MODEL,
+    input: truncated,
+    options: {
+      num_batch: Math.min(truncated.length, 32), // Ollama default batch size
+    },
+  });
+
+  const res = await fetch(`${OLLAMA_URL}/api/embed`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body,
+  });
+
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(`Ollama embed failed (${res.status}): ${text}`);
+  }
+
+  const data: OllamaEmbedResponse = await res.json();
+  if (!data.embeddings || data.embeddings.length === 0) {
+    throw new Error('Ollama returned empty embeddings');
+  }
+
+  return data.embeddings.map(e => new Float32Array(e));
+}
+
+// --- OpenAI Embedding Client ---
+
+let openaiClient: OpenAI | null = null;
+
+function getOpenAIClient(): OpenAI {
+  if (!openaiClient) {
+    openaiClient = new OpenAI();
+  }
+  return openaiClient;
+}
+
+async function openaiEmbed(text: string): Promise<Float32Array> {
+  const truncated = text.slice(0, MAX_CHARS);
+  const result = await openaiEmbedBatch([truncated]);
+  return result[0];
+}
+
+async function openaiEmbedBatch(texts: string[]): Promise<Float32Array[]> {
+  const truncated = texts.map(t => t.slice(0, MAX_CHARS));
+  const response = await getOpenAIClient().embeddings.create({
+    model: OPENAI_MODEL,
+    input: truncated,
+    dimensions: OPENAI_DIMENSIONS,
+  });
+
+  const sorted = response.data.sort((a, b) => a.index - b.index);
+  return sorted.map(d => new Float32Array(d.embedding));
+}
+
+// --- Unified API ---
+
+async function sleep(ms: number): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function exponentialDelay(attempt: number): number {
+  const delay = BASE_DELAY_MS * Math.pow(2, attempt);
+  return Math.min(delay, MAX_DELAY_MS);
 }
 
 export async function embed(text: string): Promise<Float32Array> {
@@ -62,22 +179,26 @@ export async function embedBatch(
 async function embedBatchWithRetry(texts: string[]): Promise<Float32Array[]> {
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
     try {
-      const response = await getClient().embeddings.create({
-        model: MODEL,
-        input: texts,
-        dimensions: DIMENSIONS,
-      });
-
-      // Sort by index to maintain order
-      const sorted = response.data.sort((a, b) => a.index - b.index);
-      return sorted.map(d => new Float32Array(d.embedding));
+      if (USE_OLLAMA) {
+        return await ollamaEmbedBatch(texts);
+      } else if (USE_OPENAI) {
+        const response = await getOpenAIClient().embeddings.create({
+          model: OPENAI_MODEL,
+          input: texts,
+          dimensions: OPENAI_DIMENSIONS,
+        });
+        const sorted = response.data.sort((a, b) => a.index - b.index);
+        return sorted.map(d => new Float32Array(d.embedding));
+      } else {
+        throw new Error('No embedding backend configured. Set OLLAMA_EMBEDDING_MODEL or OPENAI_API_KEY.');
+      }
     } catch (e: unknown) {
       if (attempt === MAX_RETRIES - 1) throw e;
 
-      // Check for rate limit with Retry-After header
       let delay = exponentialDelay(attempt);
 
-      if (e instanceof OpenAI.APIError && e.status === 429) {
+      // Check for rate limit with Retry-After header (OpenAI)
+      if (USE_OPENAI && e instanceof OpenAI.APIError && e.status === 429) {
         const retryAfter = e.headers?.['retry-after'];
         if (retryAfter) {
           const parsed = parseInt(retryAfter, 10);
@@ -91,20 +212,28 @@ async function embedBatchWithRetry(texts: string[]): Promise<Float32Array[]> {
     }
   }
 
-  // Should not reach here
   throw new Error('Embedding failed after all retries');
 }
 
-function exponentialDelay(attempt: number): number {
-  const delay = BASE_DELAY_MS * Math.pow(2, attempt);
-  return Math.min(delay, MAX_DELAY_MS);
+// --- Diagnostics ---
+
+export function getEmbeddingConfig(): {
+  backend: 'ollama' | 'openai' | 'none';
+  model: string;
+  dimensions: number;
+} {
+  if (USE_OLLAMA) {
+    return { backend: 'ollama', model: OLLAMA_MODEL, dimensions: OLLAMA_DIMENSIONS };
+  } else if (USE_OPENAI) {
+    return { backend: 'openai', model: OPENAI_MODEL, dimensions: OPENAI_DIMENSIONS };
+  }
+  return { backend: 'none', model: '', dimensions: 0 };
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
+// --- Exports ---
 
-export { MODEL as EMBEDDING_MODEL, DIMENSIONS as EMBEDDING_DIMENSIONS };
+export const EMBEDDING_MODEL = USE_OLLAMA ? OLLAMA_MODEL : OPENAI_MODEL;
+export const EMBEDDING_DIMENSIONS = USE_OLLAMA ? OLLAMA_DIMENSIONS : OPENAI_DIMENSIONS;
 
 /**
  * v0.20.0 Cathedral II Layer 8 (D1): USD cost per 1k tokens for
