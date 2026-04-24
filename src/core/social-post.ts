@@ -260,12 +260,11 @@ function serializeFrontmatter(fm: Record<string, unknown>): string {
         }
       }
     } else if (typeof value === 'object') {
-      // Inline YAML object (engagement stats)
-      const pairs = Object.entries(value as Record<string, unknown>)
-        .filter(([, v]) => v !== undefined && v !== null)
-        .map(([k, v]) => `${k}: ${v}`)
-        .join(', ');
-      lines.push(`${key}: {${pairs}}`);
+      lines.push(`${key}:`);
+      for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+        if (childValue === undefined || childValue === null) continue;
+        lines.push(`  ${childKey}: ${typeof childValue === 'string' ? JSON.stringify(childValue) : childValue}`);
+      }
     } else if (typeof value === 'string') {
       // Quote strings that contain special YAML characters
       const needsQuote = /[:#\[\]{},|>&*!'"\\]/.test(value) || value.includes('\n');

@@ -270,12 +270,14 @@ describe('normalizeSocialPost', () => {
     expect(markdown).toContain('https://ycombinator.com');
   });
 
-  test('engagement stored in frontmatter', async () => {
+  test('engagement stored in frontmatter and round-trips as YAML object', async () => {
     const { markdown } = normalizeSocialPost(fullPost);
     const matter = await import('gray-matter');
     const { data } = matter.default(markdown);
+    expect(markdown).toContain('engagement:\n  likes: 42');
     expect(data.engagement).toBeDefined();
     expect(data.engagement.likes).toBe(42);
+    expect(data.engagement.reposts).toBe(7);
   });
 
   test('tags include platform and "social" automatically', async () => {
