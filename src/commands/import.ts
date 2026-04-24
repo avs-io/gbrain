@@ -46,9 +46,9 @@ export async function runImport(engine: BrainEngine, args: string[], opts: { com
   }
   const dir: string = dirArg;  // narrowed; survives closure capture
 
-  // Collect all .md files
+  // Collect all ingestible files (.md, .mdx, .jsonl)
   const allFiles = collectMarkdownFiles(dir);
-  console.log(`Found ${allFiles.length} markdown files`);
+  console.log(`Found ${allFiles.length} ingestible files`);
 
   // Resume from checkpoint if available
   const checkpointPath = join(homedir(), '.gbrain', 'import-checkpoint.json');
@@ -295,7 +295,7 @@ export function collectMarkdownFiles(dir: string): string[] {
 
       if (stat.isDirectory()) {
         walk(full);
-      } else if (entry.endsWith('.md') || entry.endsWith('.mdx')) {
+      } else if (entry.endsWith('.md') || entry.endsWith('.mdx') || entry.endsWith('.jsonl')) {
         files.push(full);
       }
     }

@@ -407,4 +407,57 @@ ${longText}
       }
     }
   });
+
+  test('imports a .jsonl browser capture file', async () => {
+    const filePath = join(TMP, 'session-2026-04-24.jsonl');
+    const jsonlContent = [
+      JSON.stringify({
+        version: 'browser_capture_event_v1',
+        event_type: 'session_start',
+        session_id: 'sess-test',
+        timestamp: '2026-04-24T10:00:00Z',
+        url: 'https://example.com',
+        title: 'Test Session',
+        tags: ['test', 'browser'],
+      }),
+      JSON.stringify({
+        version: 'browser_capture_event_v1',
+        event_type: 'page_content',
+        session_id: 'sess-test',
+        timestamp: '2026-04-24T10:01:00Z',
+        url: 'https://example.com/page',
+        title: 'Page Title',
+        content: 'This is captured page content from a browser session.',
+      }),
+      JSON.stringify({
+        version: 'browser_capture_event_v1',
+        event_type: 'annotation',
+        session_id: 'sess-test',
+        text: 'Important note from the session.',
+      }),
+    ].join('\n');
+    writeFileSync(filePath, jsonlContent);
+
+    const engine = mockEngine();
+    const result = await importFile(engine, filePath, 'browser-capture/session-2026-04-24.jsonl', {
+      noEmbed: true,
+    });
+
+    expect(result.status).toBe('imported');
+    expect(result.slug).toBe('browser-capture/session-2026-04-24');
+    expect(result.chunks).toBeGreaterThanOrEqual(1);
+
+    // Verify the parsed content includes page_content and annotation
+    const calls = (engine as any)._calls;
+    const putCall = calls.find((c: any) => c.method === 'putPage');
+    expect(putCall).toBeTruthy();
+    const pageArgs = putCall.args[0];
+    expect(pageArgs).toBe('browser-capture/session-2026-04-24');
+
+    // Tags from session_start should be reconciled
+    const tagCalls = calls.filter((c: any) => c.method === 'addTag');
+    expect(tagCalls.length).toBe(2);
+    const tagNames = tagCalls.map((c: any) => c.args[1]).sort();
+    expect(tagNames).toEqual(['browser', 'test']);
+  });
 });
