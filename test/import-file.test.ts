@@ -380,7 +380,10 @@ Content to chunk but not embed.
     const result = await importFromContent(engine, 'borderline-slug', content, { noEmbed: true });
 
     expect(result.status).toBe('imported');
+  });
 
+  test('importFromContent rejects empty slugs', async () => {
+    const engine = mockEngine();
     const result = await importFromContent(engine, '   ', '---\ntitle: Test\n---\nContent', { noEmbed: true });
     expect(result.status).toBe('error');
     expect(result.error).toMatch(/empty/i);
