@@ -4,6 +4,7 @@ import { createHash } from 'crypto';
 import { marked } from 'marked';
 import type { BrainEngine } from './engine.ts';
 import { parseMarkdown } from './markdown.ts';
+import { parseBrowserCaptureJsonl } from './browser-capture.ts';
 import { chunkText } from './chunkers/recursive.ts';
 import { chunkCodeText, chunkCodeTextFull, detectCodeLanguage, CHUNKER_VERSION } from './chunkers/code.ts';
 import { findChunkForOffset } from './chunkers/edge-extractor.ts';
@@ -374,12 +375,16 @@ export async function importFromFile(
     return importCodeFile(engine, relativePath, content, opts);
   }
 
-  const parsed = parseMarkdown(content, relativePath);
+    // Auto-detect format by extension
+  const isJsonl = relativePath.endsWith(".jsonl");
+  const parsed = isJsonl
+    ? parseBrowserCaptureJsonl(content, relativePath)
+    : parseMarkdown(content, relativePath);
 
   // Enforce path-authoritative slug. parseMarkdown prefers frontmatter.slug over
   // the path-derived slug, so a mismatch here means the frontmatter is trying
   // to rewrite a page whose filesystem location says something different.
-  const expectedSlug = slugifyPath(relativePath);
+    const expectedSlug = slugifyPath(isJsonl ? relativePath.replace(/\.jsonl$/i, ".md") : relativePath);
   if (parsed.slug !== expectedSlug) {
     return {
       slug: expectedSlug,
