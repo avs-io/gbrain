@@ -50,6 +50,13 @@ export interface HybridSearchOpts extends SearchOpts {
   expandFn?: (query: string) => Promise<string[]>;
   /** Override default RRF K constant (default: 60). Lower values boost top-ranked results more. */
   rrfK?: number;
+  /**
+   * Score multiplier for stale compiled_truth chunks (0–1, default 0.85).
+   * Stale pages have newer timeline entries not yet merged back into compiled_truth,
+   * so their compiled_truth chunks are ranked lower to surface fresher pages first.
+   * Set to 1.0 to disable. Only applied when embeddings are available (full hybrid mode).
+   */
+  freshnessDecay?: number;
   /** Override dedup pipeline parameters. */
   dedupOpts?: {
     cosineThreshold?: number;
@@ -136,7 +143,8 @@ export async function hybridSearch(
   // Merge all result lists via RRF (includes normalization + boost)
   // Skip boost for detail=high (temporal/event queries want natural ranking)
   const allLists = [...vectorLists, keywordResults];
-  let fused = rrfFusion(allLists, opts?.rrfK ?? RRF_K, detail !== 'high');
+  const freshnessDecay = opts?.freshnessDecay ?? 0.85;
+  let fused = rrfFusion(allLists, opts?.rrfK ?? RRF_K, detail !== 'high', freshnessDecay);
 
   // Cosine re-scoring before dedup so semantically better chunks survive
   if (queryEmbedding) {
@@ -217,7 +225,14 @@ export async function hybridSearch(
  * Each result gets score = sum(1 / (K + rank)) across all lists it appears in.
  * After accumulation: normalize to 0-1, then boost compiled_truth chunks.
  */
-export function rrfFusion(lists: SearchResult[][], k: number, applyBoost = true): SearchResult[] {
+export function rrfFusion(
+  lists: SearchResult[][],
+  k: number,
+  applyBoost = true,
+  freshnessDecay = 1.0,
+): SearchResult[] {
+  // Clamp freshnessDecay to [0, 1] — 0 = fully suppress stale compiled_truth, 1 = no decay
+  const decay = Math.max(0, Math.min(1, freshnessDecay));
   const scores = new Map<string, { result: SearchResult; score: number }>();
 
   for (const list of lists) {
@@ -249,8 +264,13 @@ export function rrfFusion(lists: SearchResult[][], k: number, applyBoost = true)
       const boost = applyBoost && e.result.chunk_source === 'compiled_truth' ? COMPILED_TRUTH_BOOST : 1.0;
       e.score *= boost;
 
+      // Apply freshness decay: stale compiled_truth chunks rank lower
+      if (e.result.stale && e.result.chunk_source === 'compiled_truth') {
+        e.score *= decay;
+      }
+
       if (DEBUG) {
-        console.error(`[search-debug] ${e.result.slug}:${e.result.chunk_id} rrf_raw=${rawScore.toFixed(4)} rrf_norm=${(rawScore / maxScore).toFixed(4)} boost=${boost} boosted=${e.score.toFixed(4)} source=${e.result.chunk_source}`);
+        console.error(`[search-debug] ${e.result.slug}:${e.result.chunk_id} rrf_raw=${rawScore.toFixed(4)} rrf_norm=${(rawScore / maxScore).toFixed(4)} boost=${boost} decay=${decay} stale=${e.result.stale} boosted=${e.score.toFixed(4)} source=${e.result.chunk_source}`);
       }
     }
   }
