@@ -512,13 +512,16 @@ describe('putRawData wiring', () => {
     const { createHash } = await import('crypto');
     const { parseMarkdown } = await import('../src/core/markdown.ts');
     const parsed = parseMarkdown(markdown, 'social/x/1234567890.md');
+    const stableFrontmatter = Object.fromEntries(
+      Object.entries(parsed.frontmatter).sort(([a], [b]) => a.localeCompare(b)),
+    );
     const hash = createHash('sha256')
       .update(JSON.stringify({
         title: parsed.title,
         type: parsed.type,
         compiled_truth: parsed.compiled_truth,
         timeline: parsed.timeline,
-        frontmatter: parsed.frontmatter,
+        frontmatter: stableFrontmatter,
         tags: parsed.tags.sort(),
       }))
       .digest('hex');

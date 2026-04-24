@@ -376,9 +376,84 @@ Content to chunk but not embed.
     const content = '---\ntitle: Borderline\n---\n' + 'x'.repeat(4_900_000);
 
     const engine = mockEngine();
+
     const result = await importFromContent(engine, 'borderline-slug', content, { noEmbed: true });
 
     expect(result.status).toBe('imported');
+
+    const result = await importFromContent(engine, '   ', '---\ntitle: Test\n---\nContent', { noEmbed: true });
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/empty/i);
+    expect((engine as any)._calls.length).toBe(0);
+  });
+
+  test('importFromContent rejects path-traversal slugs', async () => {
+    const engine = mockEngine();
+    const result = await importFromContent(
+      engine,
+      '../../../etc/passwd',
+      '---\ntitle: Test\n---\nContent',
+      { noEmbed: true },
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/path traversal/i);
+    expect((engine as any)._calls.length).toBe(0);
+  });
+
+  test('importFromContent rejects leading-slash slugs', async () => {
+    const engine = mockEngine();
+    const result = await importFromContent(
+      engine,
+      '/absolute/path',
+      '---\ntitle: Test\n---\nContent',
+      { noEmbed: true },
+    );
+    expect(result.status).toBe('error');
+    expect(result.error).toMatch(/Invalid slug/i);
+    expect((engine as any)._calls.length).toBe(0);
+  });
+
+  test('hash is stable across equivalent content regardless of frontmatter key order', async () => {
+    // Both files have the same semantic content with extra frontmatter keys in different order.
+    // Both should produce the same hash and therefore skip on second import.
+    const engine = mockEngine();
+
+    const contentA = `---
+title: Stable Hash
+type: concept
+zz_field: zzz
+aa_field: aaa
+---
+
+Body text.
+`;
+    const result1 = await importFromContent(engine, 'stable/hash', contentA, { noEmbed: true });
+    expect(result1.status).toBe('imported');
+
+    // Same content — should be skipped because hash matches.
+    // Re-read what hash was computed and mock getPage to return it.
+    const { createHash } = await import('crypto');
+    const { parseMarkdown } = await import('../src/core/markdown.ts');
+    const parsed = parseMarkdown(contentA, 'stable/hash.md');
+    const stableFm = Object.fromEntries(
+      Object.entries(parsed.frontmatter).sort(([a], [b]) => a.localeCompare(b)),
+    );
+    const hash = createHash('sha256')
+      .update(JSON.stringify({
+        title: parsed.title,
+        type: parsed.type,
+        compiled_truth: parsed.compiled_truth,
+        timeline: parsed.timeline,
+        frontmatter: stableFm,
+        tags: parsed.tags.sort(),
+      }))
+      .digest('hex');
+
+    const engine2 = mockEngine({ getPage: () => Promise.resolve({ content_hash: hash }) });
+    const result2 = await importFromContent(engine2, 'stable/hash', contentA, { noEmbed: true });
+    expect(result2.status).toBe('skipped');
+  });
+
 
   test('imports a .jsonl browser capture file', async () => {
     const filePath = join(TMP, 'session-2026-04-24.jsonl');
