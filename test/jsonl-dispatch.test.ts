@@ -288,6 +288,28 @@ describe('importFromFile with JSONL dispatch', () => {
     expect(result.chunks).toBeGreaterThanOrEqual(1);
   });
 
+  test('social JSONL frontmatter safely round-trips YAML-special strings', async () => {
+    const filePath = join(TMP, 'social-yaml-special.jsonl');
+    writeFileSync(filePath, JSON.stringify({
+      platform: 'linkedin',
+      post_id: 'special-1',
+      text: 'Founder\'s note: ship > polish, but don\'t break YAML',
+      tags: ['founder\'s-note', 'ai:strategy'],
+      engagement: { likes: 12, comments: 3 },
+    }));
+
+    const engine = mockEngine();
+    const result = await importFile(engine, filePath, 'social/yaml-special.jsonl', {
+      noEmbed: true,
+    });
+
+    expect(result.status).toBe('imported');
+    expect(result.parsedPage?.title).toContain('Founder\'s note:');
+    expect(result.parsedPage?.tags).toContain('founder\'s-note');
+    expect(result.parsedPage?.tags).toContain('ai:strategy');
+    expect(result.parsedPage?.frontmatter.platforms).toEqual(['linkedin']);
+  });
+
   test('unknown JSONL schema returns error status', async () => {
     const filePath = join(TMP, 'unknown.jsonl');
     writeFileSync(filePath, unknownJsonl);
