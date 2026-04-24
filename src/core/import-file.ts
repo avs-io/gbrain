@@ -187,20 +187,31 @@ export async function importFromContent(
   content: string,
   opts: { noEmbed?: boolean } = {},
 ): Promise<ImportResult> {
+  const safeSlug = slug.trim();
+  if (!safeSlug) {
+    return { slug, status: 'error', chunks: 0, error: 'Slug cannot be empty' };
+  }
+  if (safeSlug.startsWith('/')) {
+    return { slug: safeSlug, status: 'error', chunks: 0, error: 'Invalid slug: cannot start with a leading slash' };
+  }
+  if (safeSlug.split('/').includes('..')) {
+    return { slug: safeSlug, status: 'error', chunks: 0, error: 'Invalid slug: cannot contain path traversal segments' };
+  }
+
   // Reject oversized payloads before any parsing, chunking, or embedding happens.
   // Uses Buffer.byteLength to count UTF-8 bytes the same way disk size would,
   // so the network path behaves identically to the file path.
   const byteLength = Buffer.byteLength(content, 'utf-8');
   if (byteLength > MAX_FILE_SIZE) {
     return {
-      slug,
+      slug: safeSlug,
       status: 'skipped',
       chunks: 0,
       error: `Content too large (${byteLength} bytes, max ${MAX_FILE_SIZE}). Split the content into smaller files or remove large embedded assets.`,
     };
   }
 
-  const parsed = parseMarkdown(content, slug + '.md');
+  const parsed = parseMarkdown(content, safeSlug + '.md');
 
   // Hash includes ALL fields for idempotency (not just compiled_truth + timeline)
   const hash = createHash('sha256')
@@ -209,8 +220,8 @@ export async function importFromContent(
       type: parsed.type,
       compiled_truth: parsed.compiled_truth,
       timeline: parsed.timeline,
-      frontmatter: parsed.frontmatter,
-      tags: parsed.tags.sort(),
+      frontmatter: sortObjectKeys(parsed.frontmatter),
+      tags: [...parsed.tags].sort(),
     }))
     .digest('hex');
 
@@ -223,9 +234,9 @@ export async function importFromContent(
     tags: parsed.tags,
   };
 
-  const existing = await engine.getPage(slug);
+  const existing = await engine.getPage(safeSlug);
   if (existing?.content_hash === hash) {
-    return { slug, status: 'skipped', chunks: 0, parsedPage };
+    return { slug: safeSlug, status: 'skipped', chunks: 0, parsedPage };
   }
 
   // Chunk compiled_truth and timeline
@@ -261,15 +272,15 @@ export async function importFromContent(
         chunks[i].token_count = Math.ceil(chunks[i].chunk_text.length / 4);
       }
     } catch (e: unknown) {
-      console.warn(`[gbrain] embedding failed for ${slug} (${chunks.length} chunks): ${e instanceof Error ? e.message : String(e)}`);
+      console.warn(`[gbrain] embedding failed for ${safeSlug} (${chunks.length} chunks): ${e instanceof Error ? e.message : String(e)}`);
     }
   }
 
   // Transaction wraps all DB writes
   await engine.transaction(async (tx) => {
-    if (existing) await tx.createVersion(slug);
+    if (existing) await tx.createVersion(safeSlug);
 
-    await tx.putPage(slug, {
+    await tx.putPage(safeSlug, {
       type: parsed.type,
       title: parsed.title,
       compiled_truth: parsed.compiled_truth,
@@ -279,20 +290,20 @@ export async function importFromContent(
     });
 
     // Tag reconciliation: remove stale, add current
-    const existingTags = await tx.getTags(slug);
+    const existingTags = await tx.getTags(safeSlug);
     const newTags = new Set(parsed.tags);
     for (const old of existingTags) {
-      if (!newTags.has(old)) await tx.removeTag(slug, old);
+      if (!newTags.has(old)) await tx.removeTag(safeSlug, old);
     }
     for (const tag of parsed.tags) {
-      await tx.addTag(slug, tag);
+      await tx.addTag(safeSlug, tag);
     }
 
     if (chunks.length > 0) {
-      await tx.upsertChunks(slug, chunks);
+      await tx.upsertChunks(safeSlug, chunks);
     } else {
       // Content is empty — delete stale chunks so they don't ghost in search results
-      await tx.deleteChunks(slug);
+      await tx.deleteChunks(safeSlug);
     }
 
     // v0.19.0 E1 — doc↔impl linking: if this markdown page cites code paths
@@ -322,7 +333,11 @@ export async function importFromContent(
     }
   });
 
-  return { slug, status: 'imported', chunks: chunks.length, parsedPage };
+  return { slug: safeSlug, status: 'imported', chunks: chunks.length, parsedPage };
+}
+
+function sortObjectKeys(obj: Record<string, unknown>): Record<string, unknown> {
+  return Object.fromEntries(Object.entries(obj).sort(([a], [b]) => a.localeCompare(b)));
 }
 
 /**
