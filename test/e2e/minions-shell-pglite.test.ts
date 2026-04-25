@@ -33,6 +33,8 @@ async function waitTerminal(queue: MinionQueue, id: number, timeoutMs = 15000): 
   throw new Error(`job ${id} did not reach terminal state in ${timeoutMs}ms; last status=${j?.status}`);
 }
 
+// PGLite WASM init + 20 schema migrations can take >5s under full-suite parallel
+// load. Explicit timeouts prevent hook-timeout false failures on slow CI.
 beforeAll(async () => {
   // registerBuiltinHandlers gates shell handler on GBRAIN_ALLOW_SHELL_JOBS=1.
   // Mirror the real --follow path by setting the env var; restore on cleanup
@@ -43,7 +45,7 @@ beforeAll(async () => {
   engine = new PGLiteEngine();
   await engine.connect({}); // in-memory PGLite
   await engine.initSchema(); // installs pages, minion_jobs, config, etc.
-});
+}, 60000);
 
 afterAll(async () => {
   await engine.disconnect();
@@ -61,7 +63,7 @@ describe('E2E: Minions shell handler on PGLite (--follow inline path)', () => {
   beforeEach(async () => {
     const db = (engine as any).db;
     await db.exec(`DELETE FROM minion_attachments; DELETE FROM minion_inbox; DELETE FROM minion_jobs;`);
-  });
+  }, 10000);
 
   test('submit → worker registered via registerBuiltinHandlers → shell runs → completes', async () => {
     const queue = new MinionQueue(engine);
