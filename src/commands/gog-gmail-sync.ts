@@ -57,32 +57,20 @@ function defaultDeps(): GogGmailSyncDeps {
 
 // ── Types ───────────────────────────────────────────────────────
 
-interface GogMessage {
+interface GogThread {
   id: string;
-  threadId?: string;
-  from?: string;
-  to?: string | string[];
-  cc?: string | string[];
-  subject?: string;
   date?: string;
-  snippet?: string;
-  body?: string;
+  from?: string;
+  subject?: string;
   labels?: string[];
+  snippet?: string;
+  messageCount?: number;
   [k: string]: unknown;
 }
 
 interface GogListResponse {
-  threads?: Array<{ id: string; snippet?: string; [k: string]: unknown }>;
-  messages?: GogMessage[];
-  [k: string]: unknown;
-}
-
-interface GogGetResponse {
-  message?: GogMessage;
-  // Some gog versions return the message directly at top level
-  id?: string;
-  from?: string;
-  subject?: string;
+  threads?: GogThread[];
+  nextPageToken?: string;
   [k: string]: unknown;
 }
 
@@ -106,52 +94,42 @@ function normalizeAddressList(val: string | string[] | undefined): string {
   return val;
 }
 
-function extractMessage(resp: GogGetResponse): GogMessage | null {
-  // gog may return { message: {...} } or the message directly at top level
-  if (resp.message && resp.message.id) return resp.message;
-  if (resp.id) return resp as unknown as GogMessage;
-  return null;
-}
+
 
 // ── Markdown normalization ──────────────────────────────────────
 
-function renderEmailMarkdown(msg: GogMessage, label: string, targetDate: string): string {
-  const subject = msg.subject || '(no subject)';
-  const from = msg.from || '';
-  const to = normalizeAddressList(msg.to);
-  const cc = normalizeAddressList(msg.cc);
-  const date = msg.date || '';
-  const labels = (msg.labels || []).join(', ');
+function renderThreadMarkdown(thread: GogThread, label: string, targetDate: string): string {
+  const subject = thread.subject || '(no subject)';
+  const from = thread.from || '';
+  const date = thread.date || '';
+  const labels = (thread.labels || []).join(', ');
+  const msgCount = thread.messageCount || 1;
 
   const lines: string[] = [
     '---',
     `subject: "${subject.replace(/"/g, '\\"')}"`,
     `from: "${from.replace(/"/g, '\\"')}"`,
-    `to: "${to.replace(/"/g, '\\"')}"`,
+    `date: "${date}"`,
   ];
-  if (cc) lines.push(`cc: "${cc.replace(/"/g, '\\"')}"`);
-  lines.push(`date: "${date}"`);
   if (labels) lines.push(`labels: "${labels}"`);
   lines.push(`source_label: "${label}"`);
   lines.push(`imported: "${targetDate}"`);
-  lines.push(`thread_id: "${msg.id || ''}"`);
+  lines.push(`thread_id: "${thread.id || ''}"`);
+  if (msgCount > 1) lines.push(`message_count: ${msgCount}`);
   lines.push('---');
   lines.push('');
   lines.push(`# ${subject}`);
   lines.push('');
   if (from) lines.push(`**From:** ${from}`);
-  if (to) lines.push(`**To:** ${to}`);
-  if (cc) lines.push(`**CC:** ${cc}`);
   if (date) lines.push(`**Date:** ${date}`);
   if (labels) lines.push(`**Labels:** ${labels}`);
+  if (msgCount > 1) lines.push(`**Messages in thread:** ${msgCount}`);
   lines.push('');
   lines.push('---');
   lines.push('');
 
-  if (msg.body) {
-    lines.push(msg.body.trim());
-  } else if (msg.snippet) {
-    lines.push(`*${msg.snippet.trim()}*`);
+  if (thread.snippet) {
+    lines.push(`*${thread.snippet.trim()}*`);
   }
 
   lines.push('');
@@ -204,7 +182,7 @@ export function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>
   for (const label of labelsToSync) {
     let listResp: GogListResponse;
     try {
-      const output = d.execGog(['gmail', 'list', '--label', label, '--json']);
+      const output = d.execGog(['gmail', 'list', `label:${label.toLowerCase()}`, '--json']);
       listResp = JSON.parse(output) as GogListResponse;
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
@@ -228,45 +206,19 @@ export function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>
       console.log(`  [dry-run] would archive ${threads.length} threads for label "${label}"`);
     }
 
-    // ── Step 2: Fetch each thread's full message ──────────────
+    // ── Step 2: Normalize threads to markdown ─────────────────
 
     for (const thread of threads) {
-      const threadId = (thread as { id?: string }).id || '';
+      const threadId = thread.id || '';
       if (!threadId) {
         result.errors.push(`Thread missing id in label "${label}"`);
         continue;
       }
 
-      let msgResp: GogGetResponse;
-      try {
-        const output = d.execGog(['gmail', 'get', threadId, '--json']);
-        msgResp = JSON.parse(output) as GogGetResponse;
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        result.errors.push(`Failed to fetch thread "${threadId}": ${msg}`);
-        console.error(`Error fetching thread "${threadId}": ${msg}`);
-        continue;
-      }
-
-      const message = extractMessage(msgResp);
-      if (!message) {
-        result.errors.push(`Thread "${threadId}" returned no parseable message`);
-        continue;
-      }
-
       if (!dryRun) {
-        const messagesDir = join(archiveBase, 'messages');
-        d.mkdir(messagesDir);
-        d.writeFile(
-          join(messagesDir, `${slugifyThreadId(threadId)}.json`),
-          JSON.stringify(msgResp, null, 2),
-        );
-
-        // ── Step 3: Normalize to markdown ─────────────────────
-
         d.mkdir(eventsBase);
         const mdPath = join(eventsBase, `${slugifyThreadId(threadId)}.md`);
-        d.writeFile(mdPath, renderEmailMarkdown(message, label, targetDate));
+        d.writeFile(mdPath, renderThreadMarkdown(thread, label, targetDate));
         result.messagesNormalized++;
       }
     }

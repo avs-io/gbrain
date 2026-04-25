@@ -51,7 +51,7 @@ describe('gog-gmail-sync', () => {
   it('fetches high-signal labels by default', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
+        if (args.some(a => a.startsWith('label:'))) {
           return JSON.stringify({ threads: [] });
         }
         return '{}';
@@ -66,11 +66,8 @@ describe('gog-gmail-sync', () => {
   it('fetches a specific label with --label', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ message: { id: 't1', subject: 'Test', from: 'a@b.com', date: '2026-04-25' } });
+        if (args.some(a => a.startsWith('label:'))) {
+          return JSON.stringify({ threads: [{ id: 't1', subject: 'Test', from: 'a@b.com', date: '2026-04-25', labels: ['STARRED'] }] });
         }
         return '{}';
       },
@@ -81,41 +78,34 @@ describe('gog-gmail-sync', () => {
     expect(result.messagesNormalized).toBe(1);
   });
 
-  it('archives thread list and message JSON', () => {
+  it('archives thread list JSON', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1', snippet: 'hello' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ message: { id: 't1', subject: 'Hi', from: 'a@b.com', date: '2026-04-25', snippet: 'hello world' } });
+        if (args.some(a => a.startsWith('label:'))) {
+          return JSON.stringify({ threads: [{ id: 't1', subject: 'Hi', from: 'a@b.com', date: '2026-04-25', labels: ['SENT'] }] });
         }
         return '{}';
       },
     });
     runGogGmailSync(['--label', 'sent', '--date', '2026-04-25'], d);
     expect(d.written.has('/mock/root/raw/sources/archive/gmail-gog/2026-04-25/threads-sent.json')).toBe(true);
-    expect(d.written.has('/mock/root/raw/sources/archive/gmail-gog/2026-04-25/messages/thread-t1.json')).toBe(true);
     expect(d.written.has('/mock/root/raw/sources/events/gmail-gog/2026-04-25/thread-t1.md')).toBe(true);
   });
 
-  it('normalizes email to markdown with frontmatter', () => {
+  it('normalizes thread to markdown with frontmatter', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        if (args.includes('get')) {
+        if (args.some(a => a.startsWith('label:'))) {
           return JSON.stringify({
-            message: {
+            threads: [{
               id: 't1',
               subject: 'Meeting Tomorrow',
               from: 'alice@example.com',
-              to: 'bob@example.com',
-              date: '2026-04-25T10:00:00Z',
+              date: '2026-04-25 10:00',
+              labels: ['SENT', 'IMPORTANT'],
               snippet: 'Can we meet at 3pm?',
-              labels: ['SENT'],
-            },
+              messageCount: 3,
+            }],
           });
         }
         return '{}';
@@ -125,27 +115,24 @@ describe('gog-gmail-sync', () => {
     const md = d.written.get('/mock/root/raw/sources/events/gmail-gog/2026-04-25/thread-t1.md')!;
     expect(md).toContain('subject: "Meeting Tomorrow"');
     expect(md).toContain('from: "alice@example.com"');
-    expect(md).toContain('to: "bob@example.com"');
     expect(md).toContain('# Meeting Tomorrow');
     expect(md).toContain('Can we meet at 3pm?');
     expect(md).toContain('Source: gmail-gog');
+    expect(md).toContain('message_count: 3');
   });
 
   it('dry-run does not write files', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ message: { id: 't1', subject: 'Test', from: 'a@b.com' } });
+        if (args.some(a => a.startsWith('label:'))) {
+          return JSON.stringify({ threads: [{ id: 't1', subject: 'Test', from: 'a@b.com' }] });
         }
         return '{}';
       },
     });
     const result = runGogGmailSync(['--label', 'sent', '--dry-run'], d);
     expect(result.threadsFetched).toBe(1);
-    expect(result.messagesNormalized).toBe(0); // dry-run counts threads but doesn't fetch/normalize
+    expect(result.messagesNormalized).toBe(0); // dry-run counts but doesn't write
     expect(d.written.size).toBe(0);
   });
 
@@ -158,25 +145,11 @@ describe('gog-gmail-sync', () => {
     expect(result.errors[0]).toContain('Failed to list threads');
   });
 
-  it('handles gog get failure gracefully', () => {
-    const d = mockDeps({
-      execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        throw new Error('gog: not found');
-      },
-    });
-    const result = runGogGmailSync(['--label', 'sent'], d);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]).toContain('Failed to fetch thread');
-  });
-
   it('handles threads with no id', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ snippet: 'no id here' }] });
+        if (args.some(a => a.startsWith('label:'))) {
+          return JSON.stringify({ threads: [{ subject: 'no id here' }] });
         }
         return '{}';
       },
@@ -186,53 +159,15 @@ describe('gog-gmail-sync', () => {
     expect(result.errors[0]).toContain('missing id');
   });
 
-  it('handles message with no parseable content', () => {
+  it('uses Gmail query syntax for label filtering', () => {
     const d = mockDeps({
       execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ something: 'unexpected' });
-        }
-        return '{}';
+        d.executed.push(args);
+        return JSON.stringify({ threads: [] });
       },
     });
-    const result = runGogGmailSync(['--label', 'sent'], d);
-    expect(result.errors.length).toBeGreaterThan(0);
-    expect(result.errors[0]).toContain('no parseable message');
-  });
-
-  it('handles { messages: [...] } response shape', () => {
-    const d = mockDeps({
-      execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ messages: [{ id: 'm1' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ message: { id: 'm1', subject: 'Msg', from: 'x@y.com' } });
-        }
-        return '{}';
-      },
-    });
-    const result = runGogGmailSync(['--label', 'sent'], d);
-    expect(result.threadsFetched).toBe(1);
-    expect(result.messagesNormalized).toBe(1);
-  });
-
-  it('handles message at top level (no wrapper)', () => {
-    const d = mockDeps({
-      execGog: (args) => {
-        if (args.includes('list')) {
-          return JSON.stringify({ threads: [{ id: 't1' }] });
-        }
-        if (args.includes('get')) {
-          return JSON.stringify({ id: 't1', subject: 'Direct', from: 'd@e.com' });
-        }
-        return '{}';
-      },
-    });
-    const result = runGogGmailSync(['--label', 'sent'], d);
-    expect(result.messagesNormalized).toBe(1);
+    runGogGmailSync(['--label', 'starred'], d);
+    expect(d.executed.length).toBeGreaterThan(0);
+    expect(d.executed[0].join(' ')).toContain('label:starred');
   });
 });
