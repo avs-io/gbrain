@@ -96,10 +96,7 @@ const calOnlyExec = (args: string[]): string => {
 
 // ── Source path ───────────────────────────────────────────────────
 
-const SRC_FILE = join(
-  '/Users/a/.openclaw/workspace/gbrain-worktrees/gog-calendar-connector-20260425',
-  'src/commands/gog-calendar-sync.ts',
-);
+const SRC_FILE = join(import.meta.dir, '../src/commands/gog-calendar-sync.ts');
 
 // ── Test: ESM __dirname compatibility ─────────────────────────────
 
