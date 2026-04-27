@@ -3,6 +3,7 @@ import {
   extractMarkdownLinks,
   extractLinksFromFile,
   extractTimelineFromContent,
+  resolveSlug,
   walkMarkdownFiles,
 } from '../src/commands/extract.ts';
 
@@ -29,6 +30,18 @@ describe('extractMarkdownLinks', () => {
   it('extracts multiple links from same line', () => {
     const content = '[A](a.md) and [B](b.md)';
     expect(extractMarkdownLinks(content)).toHaveLength(2);
+  });
+});
+
+describe('resolveSlug', () => {
+  it('resolves bare wikilinks by unique basename match across the brain', () => {
+    const allSlugs = new Set(['_identity/lighthouse', '_identity/harbor']);
+    expect(resolveSlug('_ops', 'lighthouse.md', allSlugs)).toBe('_identity/lighthouse');
+  });
+
+  it('leaves ambiguous bare wikilinks unresolved', () => {
+    const allSlugs = new Set(['_identity/lighthouse', 'projects/lighthouse']);
+    expect(resolveSlug('_ops', 'lighthouse.md', allSlugs)).toBeNull();
   });
 });
 

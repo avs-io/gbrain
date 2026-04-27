@@ -145,6 +145,14 @@ export function resolveSlug(fileDir: string, relTarget: string, allSlugs: Set<st
     if (allSlugs.has(candidate)) return candidate;
   }
 
+  // Bare wikilinks like [[lighthouse]] are common in wiki-root-relative
+  // brains. If the author omitted the directory entirely, fall back to a
+  // unique basename match across the brain; ambiguous matches stay dangling.
+  if (!targetNoExt.includes('/')) {
+    const basenameMatches = [...allSlugs].filter(slug => slug === targetNoExt || slug.endsWith(`/${targetNoExt}`));
+    if (basenameMatches.length === 1) return basenameMatches[0]!;
+  }
+
   return null;
 }
 
