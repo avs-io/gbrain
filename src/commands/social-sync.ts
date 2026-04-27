@@ -40,14 +40,15 @@ function defaultDeps(): SocialSyncDeps {
     rootDir: GBRAIN_ROOT,
     createEngine: async () => {
       // Lazy import to avoid pulling in engine deps during test imports
-      const { createEngine: ce, toEngineConfig } = await import('../core/engine-factory.ts');
-      const { loadConfig } = await import('../core/config.ts');
+      const { createEngine: ce } = await import('../core/engine-factory.ts');
+      const { loadConfig, toEngineConfig } = await import('../core/config.ts');
       const config = loadConfig();
       if (!config) {
         throw new Error('No brain configured. Run: gbrain init');
       }
-      const engine = await ce(toEngineConfig(config));
-      await engine.connect(toEngineConfig(config));
+      const engineConfig = toEngineConfig(config);
+      const engine = await ce(engineConfig);
+      await engine.connect(engineConfig);
       return engine;
     },
   };
@@ -76,6 +77,8 @@ export interface SocialSyncResult {
   skipped: number;
   /** Number of posts that caused errors (malformed JSON, etc.). */
   errors: number;
+  /** Whether this sync was executed as a dry run. */
+  dryRun: boolean;
   /** List of error messages for debugging. */
   errorMessages: string[];
   /** Total raw lines read across all JSONL files. */
@@ -189,6 +192,7 @@ export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDep
     imported: 0,
     skipped: 0,
     errors: 0,
+    dryRun,
     errorMessages: [],
     totalLines: 0,
   };
@@ -335,8 +339,6 @@ export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDep
   } finally {
     await engine.disconnect();
   }
-
-  return result;
 
   return result;
 }

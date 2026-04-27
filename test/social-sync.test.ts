@@ -35,6 +35,8 @@ function mockDeps(overrides: Partial<SocialSyncDeps> = {}): SocialSyncDeps & {
   });
 
   return {
+    written,
+    engineCalls,
     homeDir: '/tmp/mock-home',
     rootDir: '/tmp/mock-root',
     createEngine: async () => mockEngine,
@@ -199,6 +201,7 @@ describe('runSocialSync', () => {
     const d = mockDeps();
     const result = await runSocialSync(['--dry-run'], d);
     expect(result.imported).toBe(0);
+    expect(result.dryRun).toBe(true);
   });
 
   test('returns error messages for malformed JSON', async () => {
