@@ -1,0 +1,11 @@
+[
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T10:05:00.000Z",
+    "platform": "linkedin",
+    "url": "https://www.linkedin.com/posts/example-national-models",
+    "title": "Domestic model infrastructure update",
+    "content": "We should keep model training and inference inside domestic infrastructure to satisfy data residency and strategic autonomy requirements.",
+    "hash": "case-02-hash"
+  }
+]

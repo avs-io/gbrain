@@ -1,0 +1,20 @@
+[
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T11:00:00.000Z",
+    "platform": "x",
+    "url": "https://example.com/article/alpha",
+    "title": "Local LLM notes",
+    "content": "Qwen 3.6 27B benchmark notes with latency numbers.",
+    "hash": "case-04-hash"
+  },
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T11:00:30.000Z",
+    "platform": "linkedin",
+    "url": "https://example.com/article/alpha",
+    "title": "Local LLM notes",
+    "content": "Qwen 3.6 27B benchmark notes with latency numbers.",
+    "hash": "case-04-hash"
+  }
+]

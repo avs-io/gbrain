@@ -1,0 +1,11 @@
+[
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T13:00:00.000Z",
+    "platform": "linkedin",
+    "url": "https://www.linkedin.com/posts/example-ambiguous",
+    "title": "Interesting work",
+    "content": "Potentially relevant to future AI governance work, maybe useful later.",
+    "hash": "case-07-hash"
+  }
+]

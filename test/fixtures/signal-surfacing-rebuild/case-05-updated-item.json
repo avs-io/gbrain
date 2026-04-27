@@ -1,0 +1,20 @@
+[
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T12:00:00.000Z",
+    "platform": "x",
+    "url": "https://example.com/article/beta",
+    "title": "India AI Mission briefing",
+    "content": "Initial public note on an India AI Mission partnership.",
+    "hash": "case-05-hash-a"
+  },
+  {
+    "schema": "browser_transcript_message_v1",
+    "captured_at": "2026-04-27T12:15:00.000Z",
+    "platform": "x",
+    "url": "https://example.com/article/beta",
+    "title": "India AI Mission briefing",
+    "content": "Updated note: the partnership now includes an explicit sovereign AI deployment path and a named implementation owner.",
+    "hash": "case-05-hash-b"
+  }
+]
