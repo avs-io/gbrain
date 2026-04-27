@@ -4,8 +4,12 @@
  * Uses dependency injection — no live gog CLI or filesystem writes.
  */
 
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { runGogGmailSync, type GogGmailSyncDeps } from '../src/commands/gog-gmail-sync.ts';
+import { describe, it, expect, spyOn } from 'bun:test';
+import {
+  runGogGmailSync,
+  runGogGmailSyncCommand,
+  type GogGmailSyncDeps,
+} from '../src/commands/gog-gmail-sync.ts';
 
 function mockDeps(overrides: Partial<GogGmailSyncDeps> = {}): GogGmailSyncDeps & {
   written: Map<string, string>;
@@ -28,15 +32,10 @@ function mockDeps(overrides: Partial<GogGmailSyncDeps> = {}): GogGmailSyncDeps &
 }
 
 describe('gog-gmail-sync', () => {
-  beforeEach(() => {
-    vi.restoreAllMocks();
-  });
-
-  it('prints help with --help', () => {
-    const spy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
-    const consoleSpy = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const { runGogGmailSyncCommand } = require('../src/commands/gog-gmail-sync.ts');
-    runGogGmailSyncCommand(['--help']);
+  it('prints help with --help', async () => {
+    const spy = spyOn(process, 'exit').mockImplementation(() => undefined as never);
+    const consoleSpy = spyOn(console, 'log').mockImplementation(() => {});
+    await runGogGmailSyncCommand(['--help']);
     expect(spy).toHaveBeenCalledWith(0);
     expect(consoleSpy).toHaveBeenCalledWith(expect.stringContaining('Usage:'));
     spy.mockRestore();

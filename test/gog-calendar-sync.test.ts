@@ -132,7 +132,7 @@ describe('--help support', () => {
     const logs: string[] = [];
     const origLog = console.log;
     const origExit = process.exit;
-    let exitCode: number | null = null;
+    let exitCode = -1;
 
     console.log = (...args: unknown[]) => logs.push(args.join(' '));
     process.exit = ((code: number) => { exitCode = code; }) as never;

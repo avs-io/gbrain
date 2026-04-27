@@ -70,6 +70,7 @@ interface GogThread {
 
 interface GogListResponse {
   threads?: GogThread[];
+  messages?: GogThread[];
   nextPageToken?: string;
   [k: string]: unknown;
 }
