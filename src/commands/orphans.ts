@@ -50,6 +50,8 @@ const DENY_PREFIXES = [
   'scripts/',
   'templates/',
   'openclaw/config/',
+  'raw/',
+  'sources/',
 ];
 
 /** First slug segments where no inbound links is expected */

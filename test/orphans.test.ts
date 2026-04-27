@@ -70,6 +70,14 @@ describe('shouldExclude', () => {
     expect(shouldExclude('openclaw/config/agent')).toBe(true);
   });
 
+  test('excludes deny-prefix: raw/', () => {
+    expect(shouldExclude('raw/import-batch')).toBe(true);
+  });
+
+  test('excludes deny-prefix: sources/', () => {
+    expect(shouldExclude('sources/crunchbase/company')).toBe(true);
+  });
+
   test('excludes first-segment: scratch', () => {
     expect(shouldExclude('scratch/idea-dump')).toBe(true);
   });
