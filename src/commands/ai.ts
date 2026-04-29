@@ -1,13 +1,14 @@
 import { readFile } from 'node:fs/promises';
 import { enqueueJob, listJobs, retryJob, updateJob } from '../core/ai/job-queue.ts';
 import { routeModel } from '../core/ai/model-router.ts';
+import { prepareProviderRun } from '../core/ai/provider-runner.ts';
 import { buildMemoryAtomProposal, enqueueMemoryAtomProposal, listMemoryAtomProposals, proposeMemoryAtomFromSpan } from '../core/ai/memory-atom-proposal.ts';
 import { validateProposalForPromotion } from '../core/ai/proposal-promotion-gate.ts';
 import { verifyClaimSupport } from '../core/ai/claim-support-verifier.ts';
 import { runLocalIntelligenceJob } from '../core/ai/local-runner.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
 
-function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string; proposalJson?: string } {
+function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string; proposalJson?: string; prompt?: string; promptFile?: string } {
   let kind: WorkKind | undefined;
   let privacy: PrivacyTier | undefined;
   let json = false;
@@ -29,6 +30,8 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
   let explanation: string | undefined;
   let jobJson: string | undefined;
   let proposalJson: string | undefined;
+  let prompt: string | undefined;
+  let promptFile: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
@@ -69,13 +72,28 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
     else if (a?.startsWith('--job-json=')) jobJson = a.slice(11);
     else if (a === '--proposal-json') proposalJson = args[++i];
     else if (a?.startsWith('--proposal-json=')) proposalJson = a.slice(16);
+    else if (a === '--prompt') prompt = args[++i];
+    else if (a?.startsWith('--prompt=')) prompt = a.slice(9);
+    else if (a === '--prompt-file') promptFile = args[++i];
+    else if (a?.startsWith('--prompt-file=')) promptFile = a.slice(14);
     else if (a && !a.startsWith('--') && !id) id = a;
   }
-  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation, jobJson, proposalJson };
+  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation, jobJson, proposalJson, prompt, promptFile };
 }
 
 export async function runAiCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
+  if (sub === 'provider') {
+    const [action, ...providerArgs] = rest;
+    const flags = parse(providerArgs);
+    if (action === 'prepare') {
+      if (!flags.kind || !flags.privacy || (!flags.prompt && !flags.promptFile)) throw new Error('Usage: gbrain ai provider prepare --kind <kind> --privacy <P0|P1|P2|P3> --prompt <text>|--prompt-file <file> [--allow-cloud-escalation] [--json]');
+      const prompt = flags.promptFile ? await readFile(flags.promptFile, 'utf8') : flags.prompt!;
+      const result = prepareProviderRun({ kind: flags.kind, privacy: flags.privacy, allowCloudEscalation: flags.allowCloudEscalation, prompt });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
+  }
   if (sub === 'route') {
     const flags = parse(rest);
     if (!flags.kind || !flags.privacy) throw new Error('Usage: gbrain ai route --kind <kind> --privacy <P0|P1|P2|P3> [--allow-cloud-escalation] [--json]');
