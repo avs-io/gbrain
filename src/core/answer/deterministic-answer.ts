@@ -2,6 +2,8 @@ import type { RecallResult } from '../evidence/recall.ts';
 import { normalizeRecallEvidence, isExactEvidenceWindow } from './evidence-normalize.ts';
 import { validateClaimCitations } from './citation-validate.ts';
 import { ANSWER_ENVELOPE_SCHEMA, type AnswerEnvelope, type ClaimAtom, type CitationRef, type EvidenceWindow } from './types.ts';
+import { buildQueryFrame } from './query-frame.ts';
+import { selectAnswerShape } from './shape-selector.ts';
 
 export interface DeterministicAnswerOptions {
   maxEvidence?: number;
@@ -42,6 +44,8 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
   const maxEvidence = options.maxEvidence ?? DEFAULT_MAX_EVIDENCE;
   const maxQuoteChars = options.maxQuoteChars ?? DEFAULT_MAX_QUOTE_CHARS;
   const normalized = normalizeRecallEvidence(recall);
+  const queryFrame = buildQueryFrame(recall.query);
+  const shape = selectAnswerShape(queryFrame);
   const exactEvidence = normalized.filter(isExactEvidenceWindow);
   const evidence = exactEvidence.slice(0, maxEvidence);
   const warnings = [...(recall.warnings ?? [])];
@@ -56,6 +60,8 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
       query: recall.query,
       status: 'abstain',
       synthesis: 'deterministic-v2',
+      shape: shape.id,
+      queryFrame,
       answer: '',
       sections: [],
       claims: [],
@@ -86,6 +92,8 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
     query: recall.query,
     status,
     synthesis: 'deterministic-v2',
+    shape: shape.id,
+    queryFrame,
     answer,
     sections: [{ id: 'direct_quotes', title: 'Direct quote evidence', claimIds: claims.map(claim => claim.id) }],
     claims,

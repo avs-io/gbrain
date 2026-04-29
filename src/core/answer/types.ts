@@ -1,4 +1,5 @@
 import type { RecallResult } from '../evidence/recall.ts';
+import type { AnswerShapeId, QueryFrame } from './synthesis-dsl.ts';
 
 export const ANSWER_ENVELOPE_SCHEMA = 'gbrain.answer_envelope.v2' as const;
 
@@ -58,6 +59,8 @@ export interface AnswerEnvelope {
   query: string;
   status: AnswerStatus;
   synthesis: 'deterministic-v2';
+  shape: AnswerShapeId;
+  queryFrame: QueryFrame;
   answer: string;
   sections: AnswerSection[];
   claims: ClaimAtom[];
