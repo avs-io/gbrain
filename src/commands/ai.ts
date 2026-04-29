@@ -2,11 +2,12 @@ import { readFile } from 'node:fs/promises';
 import { enqueueJob, listJobs, retryJob, updateJob } from '../core/ai/job-queue.ts';
 import { routeModel } from '../core/ai/model-router.ts';
 import { buildMemoryAtomProposal, enqueueMemoryAtomProposal, listMemoryAtomProposals, proposeMemoryAtomFromSpan } from '../core/ai/memory-atom-proposal.ts';
+import { validateProposalForPromotion } from '../core/ai/proposal-promotion-gate.ts';
 import { verifyClaimSupport } from '../core/ai/claim-support-verifier.ts';
 import { runLocalIntelligenceJob } from '../core/ai/local-runner.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
 
-function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string } {
+function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string; proposalJson?: string } {
   let kind: WorkKind | undefined;
   let privacy: PrivacyTier | undefined;
   let json = false;
@@ -27,6 +28,7 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
   let quote: string | undefined;
   let explanation: string | undefined;
   let jobJson: string | undefined;
+  let proposalJson: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
@@ -65,9 +67,11 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
     else if (a?.startsWith('--job-id=')) id = a.slice(9);
     else if (a === '--job-json') jobJson = args[++i];
     else if (a?.startsWith('--job-json=')) jobJson = a.slice(11);
+    else if (a === '--proposal-json') proposalJson = args[++i];
+    else if (a?.startsWith('--proposal-json=')) proposalJson = a.slice(16);
     else if (a && !a.startsWith('--') && !id) id = a;
   }
-  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation, jobJson };
+  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation, jobJson, proposalJson };
 }
 
 export async function runAiCommand(_engine: unknown, args: string[]): Promise<void> {
@@ -104,6 +108,13 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
       else if (result.duplicate) console.log(`Memory atom proposal already queued: ${record.proposal_id}`);
       else if (result.dryRun) console.log(`Dry run: memory atom proposal would append to ${result.path}`);
       else console.log(`Queued memory atom proposal: ${record.proposal_id}`);
+      return;
+    }
+    if (action === 'gate') {
+      if (!flags.proposalJson) throw new Error('Usage: gbrain ai memory-atoms gate --proposal-json <file> [--json]');
+      const proposal = JSON.parse(await readFile(flags.proposalJson, 'utf8'));
+      const result = validateProposalForPromotion(proposal, { allowStrongInference: false });
+      console.log(JSON.stringify(result, null, 2));
       return;
     }
     if (action === 'list') {
