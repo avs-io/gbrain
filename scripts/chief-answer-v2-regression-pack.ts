@@ -12,19 +12,25 @@ interface Flags {
   out?: string;
   includeEnvelopes: boolean;
   noLive: boolean;
+  help: boolean;
 }
 
 function parseArgs(args: string[]): Flags {
-  const flags: Flags = { includeEnvelopes: false, noLive: false };
+  const flags: Flags = { includeEnvelopes: false, noLive: false, help: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--out') flags.out = requireValue(args, ++i, arg);
     else if (arg.startsWith('--out=')) flags.out = arg.slice(6);
     else if (arg === '--include-envelopes') flags.includeEnvelopes = true;
     else if (arg === '--no-live') flags.noLive = true;
+    else if (arg === '--help' || arg === '-h') flags.help = true;
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
   }
   return flags;
+}
+
+function printHelp(): void {
+  console.log(`Usage: bun run scripts/chief-answer-v2-regression-pack.ts [options]\n\nOptions:\n  --out <file>             Write the regression pack JSON to a file\n  --include-envelopes      Include raw answer envelopes in the output\n  --no-live                Skip the live promotion smoke and use the no-live payload\n  -h, --help               Show this help message`);
 }
 
 function requireValue(args: string[], index: number, flag: string): string {
@@ -60,6 +66,7 @@ function loadPromotionPayload(flags: Flags): { report: any; cases: RegressionPac
 
 function main(): void {
   const flags = parseArgs(process.argv.slice(2));
+  if (flags.help) { printHelp(); return; }
   const { report, cases } = loadPromotionPayload(flags);
   const artifact = buildRegressionPackArtifact(report, cases, {
     generatedAt: new Date().toISOString(),
