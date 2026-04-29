@@ -199,6 +199,41 @@ describe('answer synthesis from recall evidence', () => {
     expect(stackLine.split(';').length - 1).toBeLessThanOrEqual(1);
   });
 
+  test('strips markdown headings and citation artifacts from source windows before synthesis', () => {
+    const artifactRecall: RecallResult = {
+      query: 'What changed in the protocol stack?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/artifact-window#compiled_truth:L1-L3',
+          source_id: 'default',
+          slug: 'sources/test/artifact-window',
+          title: 'Artifact Window',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 3,
+          quote: '### Therefore\n> Claim: Build a neutral network.\n- Agree: turn123search45 and citeturn1search5 are not acceptable.',
+          quote_hash: 'f'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.88,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(artifactRecall, { maxEvidence: 1, maxQuoteChars: 220 });
+
+    expect(out.status).toBe('hit');
+    expect(out.answer).not.toContain('###');
+    expect(out.answer).not.toContain('citeturn1search5');
+    expect(out.answer).not.toContain('turn123search45');
+    expect(out.answer).not.toContain('Claim:');
+    expect(out.answer).not.toContain('Agree:');
+    expect(out.answer).toContain('Build a neutral network.');
+  });
+
   test('answer CLI accepts recall JSON without needing a brain connection', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-answer-synthesis-'));
     const hitPath = join(dir, 'recall-hit.json');

@@ -45,14 +45,20 @@ const ROLE_PATTERNS: Array<[EvidenceSignalRole, RegExp[]]> = [
 ];
 
 function compact(text: string): string {
-  return text.replace(/[`*_>\uE000-\uF8FF]/g, '').replace(/\s+/g, ' ').trim();
+  return text
+    .replace(/[`*_>\uE000-\uF8FF]/g, '')
+    .replace(/^\s*#{1,6}\s*/g, '')
+    .replace(/\bciteturn\w+\b/gi, '')
+    .replace(/\bturn\d+search\d+\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> {
   const out: Array<{ text: string; kind: SignalKind }> = [];
   const rawLines = quote.replace(/\r\n?/g, '\n').split('\n');
   for (const raw of rawLines) {
-    const line = compact(raw.replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, ''));
+    const line = compact(raw.replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, ''));
     if (!line) continue;
     const bullet = /^\s*[-*•]/.test(raw);
     const commaList = line.includes(':') && line.split(',').length >= 4;

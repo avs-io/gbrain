@@ -54,9 +54,12 @@ function stripSourceArtifacts(text: string): string {
   return text
     // ChatGPT/browser transcript citation glyphs sometimes survive inside source text.
     .replace(/cite[^]*/g, '')
+    .replace(/citeturn\w+/gi, '')
+    .replace(/turn\d+search\d+/gi, '')
     .replace(/\[Source:\s*[^\]]*\]/gi, '')
     .replace(/^\s*(?:>\s*)+/gm, '')
     .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, '')
+    .replace(/^\s*#{1,6}\s*/gm, '')
     .replace(/`([^`]+)`/g, '$1')
     .replace(/\*\*([^*]+)\*\*/g, '$1')
     .replace(/__([^_]+)__/g, '$1')
@@ -70,6 +73,7 @@ function cleanSourceLine(line: string): string {
   return stripSourceArtifacts(line)
     .trim()
     .replace(/^Claim:\s*/i, '')
+    .replace(/^Agree:\s*/i, '')
     .replace(/^“([^”]+)”\s*→\s*Agree\.?$/i, '$1')
     .replace(/^[\s:–—-]+/, '')
     .trim();
@@ -134,7 +138,9 @@ function splitClauses(text: string): string[] {
   return splitSentences(text)
     .flatMap(sentence => sentence.split(/;\s+|,\s+(?=[A-Z][A-Za-z0-9 '+-]*(?:\d|mg|g|IU|BID|Daily|Multivitamin|Glycinate|Metformin|NAC|NMN|Vitamin|Folic|Phosphatidylcholine))/g))
     .map(clause => compactWhitespace(clause))
-    .filter(clause => clause.length >= 3);
+    .filter(clause => clause.length >= 3)
+    .filter(clause => !/^Claim:\s*/i.test(clause))
+    .filter(clause => !/^Agree:\s*/i.test(clause));
 }
 
 function sentenceScore(sentence: string, terms: string[]): number {

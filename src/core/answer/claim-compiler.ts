@@ -17,7 +17,8 @@ function citationFor(signal: EvidenceSignal, evidenceById: Map<string, EvidenceW
 function sentence(text: string): string {
   const trimmed = text.replace(/\s+/g, ' ').trim();
   if (!trimmed) return trimmed;
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
+  const cleaned = trimmed.replace(/^#+\s*/g, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, '');
+  return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
 }
 
 function claimKind(slotId: string, signals: EvidenceSignal[]): ClaimAtom['kind'] {
@@ -29,7 +30,7 @@ function claimKind(slotId: string, signals: EvidenceSignal[]): ClaimAtom['kind']
 }
 
 function compactListText(signals: EvidenceSignal[], maxQuoteChars: number): string {
-  const text = signals.map(signal => signal.text).join(' ');
+  const text = signals.map(signal => signal.text).join(' ').replace(/\bciteturn\w+\b/gi, '').replace(/\bturn\d+search\d+\b/gi, '').trim();
   if (text.length <= maxQuoteChars) return sentence(text);
   const cut = text.slice(0, Math.max(0, maxQuoteChars - 1));
   const boundary = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf('; '), cut.lastIndexOf(' '));

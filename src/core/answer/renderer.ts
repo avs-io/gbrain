@@ -36,6 +36,8 @@ function dedupeRenderedLines(lines: string[]): string[] {
   const seen = new Set<string>();
   for (const line of lines) {
     const trimmed = line.trim();
+    if (/^#+\s*/.test(trimmed)) continue;
+    if (/\bciteturn\w+\b/i.test(trimmed) || /\bturn\d+search\d+\b/i.test(trimmed)) continue;
     if (trimmed.startsWith('- ') && seen.has(trimmed.toLowerCase())) continue;
     if (trimmed.startsWith('- ')) seen.add(trimmed.toLowerCase());
     out.push(line);
@@ -62,7 +64,7 @@ export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSig
     const out: ClaimAtom[] = [];
     for (const claim of candidateClaims) {
       if (!hasRenderableText(claim)) continue;
-      const fingerprint = claim.text.trim().toLowerCase().replace(/\s+/g, ' ');
+      const fingerprint = claim.text.trim().toLowerCase().replace(/\s+/g, ' ').replace(/\bciteturn\w+\b/g, '').replace(/\bturn\d+search\d+\b/g, '');
       if (renderedClaimText.has(fingerprint)) continue;
       renderedClaimText.add(fingerprint);
       out.push(claim);
