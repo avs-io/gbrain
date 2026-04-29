@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import { evaluateAnswerPromotionCases } from '../../src/core/answer/promotion-eval.ts';
+import { analyzeRecallForAnswer } from '../../src/core/evidence/recall-diagnostics.ts';
 import type { AnswerEnvelope } from '../../src/core/answer/types.ts';
 
 function makeEnvelope(overrides: Partial<AnswerEnvelope> = {}): AnswerEnvelope {
@@ -27,6 +28,9 @@ function makeEnvelope(overrides: Partial<AnswerEnvelope> = {}): AnswerEnvelope {
 
 describe('answer-v2 promotion fixture/report formatting', () => {
   test('stable report shape for canonical fixtures', () => {
+    const diagnostics = analyzeRecallForAnswer({ query: 'q', evidence: [{ span_id: 'gbs1:source#L1-L2', source_id: 'source', quote: 'x' }] } as any);
+    expect(diagnostics.recommendation).toBe('good_for_synthesis');
+    expect(diagnostics.schema).toBe('gbrain.recall_diagnostics.v1');
     const report = evaluateAnswerPromotionCases([
       { id: 'a', query: 'q', envelope: makeEnvelope() },
       { id: 'b', query: 'q2', envelope: makeEnvelope({ answer: 'clean answer 2' }) },

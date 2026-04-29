@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import { buildDeterministicAnswerEnvelope } from '../../src/core/answer/index.ts';
 import { evaluateAnswerPromotionCases } from '../../src/core/answer/promotion-eval.ts';
+import { analyzeRecallForAnswer } from '../../src/core/evidence/recall-diagnostics.ts';
 import type { RecallResult } from '../../src/core/evidence/recall.ts';
 
 const baseRecall: RecallResult = {
@@ -28,6 +29,9 @@ const baseRecall: RecallResult = {
 
 describe('answer promotion eval', () => {
   test('passes clean exact-evidence envelopes', () => {
+    const diagnostics = analyzeRecallForAnswer(baseRecall);
+    expect(diagnostics.recommendation).toBe('good_for_synthesis');
+
     const report = evaluateAnswerPromotionCases([
       { id: 'clean', envelope: buildDeterministicAnswerEnvelope(baseRecall), max_length: 2000 },
     ]);

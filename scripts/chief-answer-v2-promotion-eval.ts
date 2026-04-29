@@ -1,8 +1,10 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join, resolve } from 'node:path';
 
 import { evaluateAnswerPromotionCases, type AnswerPromotionCase, type AnswerPromotionReport } from '../src/core/answer/promotion-eval.ts';
+import { analyzeRecallForAnswer, type RecallDiagnosticsEnvelope } from '../src/core/evidence/recall-diagnostics.ts';
 
 const ROOT = resolve(import.meta.dirname, '..');
 
@@ -65,7 +67,10 @@ function isLiveRecallUnavailable(error: unknown): boolean {
   return /brain connection|recall data unavailable|no brain connection|connection/i.test(text);
 }
 
-function buildCaseFromRecall(item: { id: string; question: string }, recall: CliJson, answer: CliJson): AnswerPromotionCase {
+type PromotionCaseRecord = AnswerPromotionCase & { recall_diagnostics?: RecallDiagnosticsEnvelope };
+
+function buildCaseFromRecall(item: { id: string; question: string }, recall: CliJson, answer: CliJson): PromotionCaseRecord {
+  const recallDiagnostics = analyzeRecallForAnswer(recall as any);
   return {
     id: item.id,
     query: item.question,
@@ -73,19 +78,23 @@ function buildCaseFromRecall(item: { id: string; question: string }, recall: Cli
     max_length: 6000,
     required_terms: [],
     envelope: answer,
+    recall_diagnostics: recallDiagnostics,
   };
 }
 
-function formatReport(report: AnswerPromotionReport, cases: AnswerPromotionCase[]): string {
-  const rows = report.failures.length
-    ? report.failures.map(f => `- ${f.case_id}: ${f.reasons.join('; ')}`).join('\n')
-    : '- none';
-  return JSON.stringify({ report, cases: cases.map(c => ({ id: c.id, query: c.query })) }, null, 2) + `\n\n${rows}\n`;
+function enrichFailureSummary(report: AnswerPromotionReport, cases: PromotionCaseRecord[]): Array<{ case_id: string; reasons: string[] }> {
+  return report.failures.map(failure => {
+    const diagnostics = cases.find(c => c.id === failure.case_id)?.recall_diagnostics;
+    if (!diagnostics) return failure;
+    const summary = `recall=${diagnostics.recommendation}; gbs1=${diagnostics.gbs1_count}; non_gbs1=${diagnostics.non_gbs1_count}; dup=${diagnostics.duplicate_span_count}`;
+    return { ...failure, reasons: [...failure.reasons, summary] };
+  });
 }
 
 function main(): void {
   const flags = parseArgs(process.argv.slice(2));
-  const cases: AnswerPromotionCase[] = [];
+  const cases: PromotionCaseRecord[] = [];
+  const tmpDir = mkdtempSync(join(tmpdir(), 'gbrain-chief-answer-v2-'));
 
   if (!flags.live) {
     const report = evaluateAnswerPromotionCases([]);
@@ -97,8 +106,6 @@ function main(): void {
     try {
       const recall = parseJson(runCli(['recall', item.question, '--quotes', '--json']));
       // The answer CLI consumes recall JSON from a file, so persist the local recall payload to a temp fixture.
-      const tmpDir = resolve(ROOT, '.tmp');
-      mkdirSync(tmpDir, { recursive: true });
       const recallPath = resolve(tmpDir, `${item.id}.recall.json`);
       writeFileSync(recallPath, JSON.stringify(recall, null, 2));
       const v2 = parseJson(runCli(['answer', '--from-recall-json', recallPath, '--synthesis', 'deterministic-v2', '--json']));
@@ -118,7 +125,7 @@ function main(): void {
   const payload = {
     schema: 'gbrain.answer_v2_promotion_fixture.v1',
     ok: report.ok,
-    report,
+    report: { ...report, failures: enrichFailureSummary(report, cases) },
     cases: cases.map(c => ({
       id: c.id,
       query: c.query,
@@ -126,6 +133,7 @@ function main(): void {
       expected_abstain: c.expected_abstain,
       max_length: c.max_length,
       required_terms: c.required_terms,
+      recall_diagnostics: c.recall_diagnostics,
     })),
   };
 
