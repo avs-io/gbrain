@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import type { BrainEngine } from '../core/engine.ts';
+import { analyzeRecallForAnswer } from '../core/evidence/recall-diagnostics.ts';
 import { recallEvidence, type RecallResult } from '../core/evidence/recall.ts';
 import { synthesizeAnswerFromRecall, type AnswerSynthesisResult } from '../core/evidence/answer-synthesis.ts';
 import { buildDeterministicAnswerEnvelope, type AnswerEnvelope } from '../core/answer/index.ts';
@@ -15,6 +16,7 @@ interface ParsedFlags {
   maxEvidence: number;
   maxQuoteChars: number;
   synthesis: 'legacy' | 'deterministic-v2';
+  diagnoseRecall: boolean;
 }
 
 function printHelp(): void {
@@ -24,6 +26,7 @@ USAGE
   gbrain answer <query> [--json] [--limit N] [--before N] [--after N] [--source-id id]
   gbrain answer --from-recall-json <path|-> [--json] [--max-evidence N] [--max-quote-chars N]
   gbrain answer --from-recall-json <path|-> --synthesis deterministic-v2 --json
+  gbrain answer diagnose-recall --from-recall-json <path|-> --json
 
 NOTES
   Answer synthesis is deterministic and bounded. It only restates exact gbs1 source windows.
@@ -51,7 +54,7 @@ function parsePositiveInt(value: string, flag: string): number {
 }
 
 function parseArgs(args: string[]): ParsedFlags {
-  const flags: ParsedFlags = { queryParts: [], json: false, limit: 5, before: 2, after: 2, maxEvidence: 4, maxQuoteChars: 420, synthesis: 'legacy' };
+  const flags: ParsedFlags = { queryParts: [], json: false, limit: 5, before: 2, after: 2, maxEvidence: 4, maxQuoteChars: 420, synthesis: 'legacy', diagnoseRecall: false };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') flags.json = true;
@@ -65,6 +68,7 @@ function parseArgs(args: string[]): ParsedFlags {
     else if (arg.startsWith('--source-id=')) flags.sourceId = arg.slice('--source-id='.length);
     else if (arg.startsWith('--source=')) flags.sourceId = arg.slice('--source='.length);
     else if (arg === '--from-recall-json') flags.fromRecallJson = needValue(args, ++i, arg);
+    else if (arg === 'diagnose-recall') flags.diagnoseRecall = true;
     else if (arg.startsWith('--from-recall-json=')) flags.fromRecallJson = arg.slice('--from-recall-json='.length);
     else if (arg === '--max-evidence') flags.maxEvidence = parsePositiveInt(needValue(args, ++i, arg), arg);
     else if (arg.startsWith('--max-evidence=')) flags.maxEvidence = parsePositiveInt(arg.slice('--max-evidence='.length), '--max-evidence');
@@ -152,6 +156,14 @@ export async function runAnswerCommand(engine: BrainEngine | null, args: string[
       after: flags.after,
       sourceId: flags.sourceId,
     });
+  }
+
+  if (flags.diagnoseRecall) {
+    const result = analyzeRecallForAnswer(recall);
+    if (flags.json) console.log(JSON.stringify(result, null, 2));
+    else console.log([`Recall diagnostics for "${result.query}"`, `ok: ${result.ok}`, `recommendation: ${result.recommendation}`, `evidence_count: ${result.evidence_count}`, `gbs1_count: ${result.gbs1_count}`, `non_gbs1_count: ${result.non_gbs1_count}`, `duplicate_span_count: ${result.duplicate_span_count}`, `source_count: ${result.source_count}`, `top_sources: ${result.top_sources.map(s => `${s.source}:${s.count}`).join(', ') || 'none'}`, result.warnings.length ? `warnings: ${result.warnings.join('; ')}` : 'warnings: none'].join('\n'));
+    if (!result.ok) process.exitCode = 1;
+    return;
   }
 
   if (containsSyntheticEvidence(recall)) throw new Error('Synthetic evidence is not eligible for memory or citation-backed answers');

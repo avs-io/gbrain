@@ -384,3 +384,5 @@ export async function recallEvidence(engine: BrainEngine, query: string, opts: R
     },
   };
 }
+
+export * from './recall-diagnostics.ts';
