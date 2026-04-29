@@ -174,6 +174,9 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('Agent Commerce Clearinghouse (ACC)');
     expect(answer.answer).toContain('zero network lock-in');
     expect(answer.answer).toContain('policy theatre and lack of real leverage');
+    expect(answer.answer).not.toContain('?.');
+    expect(answer.answer).not.toContain('..');
+    expect(answer.answer).not.toMatch(/\.\s+a neutral\b/);
     expect(answer.answer).not.toContain('> **Build');
     expect(answer.answer).not.toContain('cite');
     expect(answer.answer).not.toContain('family durability');

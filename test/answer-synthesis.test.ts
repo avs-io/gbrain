@@ -124,6 +124,45 @@ describe('answer synthesis from recall evidence', () => {
     expect(out.warnings.join(' ')).toContain('low-relevance or duplicate source windows were excluded');
   });
 
+  test('polishes sentence-cluster punctuation without changing cited facts', () => {
+    const clusteredRecall: RecallResult = {
+      query: 'What was the idea before MWAL and why was MWAL not pursued?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/acc-lineage#compiled_truth:L1-L3',
+          source_id: 'default',
+          slug: 'sources/test/acc-lineage',
+          title: 'ACC Lineage',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 3,
+          quote: 'Build the Agent Commerce Clearinghouse (ACC). a neutral settlement layer for agent commerce. Why not ACC as the top rail? PSPs already bundle escrow/chargeback tooling and Visa VROL sits over disputes.',
+          quote_hash: 'e'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.92,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(clusteredRecall, { maxEvidence: 1, maxQuoteChars: 260 });
+
+    expect(out.status).toBe('hit');
+    expect(out.answer).toContain('Build the Agent Commerce Clearinghouse (ACC).');
+    expect(out.answer).toContain('A neutral settlement layer for agent commerce.');
+    expect(out.answer).toContain('Why not ACC as the top rail?');
+    expect(out.answer).toContain('[S1]');
+    expect(out.citations).toEqual([
+      expect.objectContaining({ label: 'S1', span_id: clusteredRecall.evidence[0].span_id, quote_hash: 'e'.repeat(64) }),
+    ]);
+    expect(out.answer).not.toContain('?.');
+    expect(out.answer).not.toContain('..');
+    expect(out.answer).not.toMatch(/\.\s+a neutral\b/);
+  });
+
   test('renders dense evidence clusters without semicolon-chain prose', () => {
     const clusteredRecall: RecallResult = {
       query: 'What supplements was Anu using during pregnancy?',

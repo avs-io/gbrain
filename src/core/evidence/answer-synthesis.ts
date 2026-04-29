@@ -357,12 +357,34 @@ function citedLine(sentence: CitationSentence): string {
   return `${sentence.text} ${citationGroup([sentence.citation])}`;
 }
 
-function cleanClusterFragment(text: string): string {
-  return text.replace(/\s+$/g, '').replace(/[.;:,]+$/g, '').trim();
+function cleanSentenceFragment(text: string): string {
+  const fragment = text.replace(/\s+$/g, '').replace(/[;:,]+$/g, '').trim();
+  return fragment
+    .replace(/([.!?])[.!?]+$/g, '$1')
+    .replace(/([.!?]\s+)([a-z])/g, (_match, boundary: string, first: string) => `${boundary}${first.toUpperCase()}`);
+}
+
+function cleanClauseFragment(text: string): string {
+  return text.replace(/\s+$/g, '').replace(/[.!?;:,]+$/g, '').trim();
+}
+
+function hasSentenceTerminal(fragment: string): boolean {
+  return /[.!?][\]\)"'”’]*$/.test(fragment.trim());
 }
 
 function looksLikeSentence(fragment: string): boolean {
-  return /[.!?][\]\)"'”’]*$/.test(fragment.trim()) || fragment.length >= 110;
+  return hasSentenceTerminal(fragment) || fragment.length >= 110;
+}
+
+function capitalizeSentenceStart(fragment: string): string {
+  return fragment.replace(/^(\s*[\[("'“‘]*)([a-z])/, (_match, prefix: string, first: string) => `${prefix}${first.toUpperCase()}`);
+}
+
+function renderSentenceFragment(fragment: string): string {
+  const cleaned = cleanSentenceFragment(fragment);
+  if (!cleaned) return '';
+  const capped = capitalizeSentenceStart(cleaned);
+  return hasSentenceTerminal(capped) ? capped : `${capped}.`;
 }
 
 function continuationItem(item: string): string {
@@ -377,13 +399,13 @@ function naturalJoin(items: string[], separator: string): string {
 }
 
 function joinClusterText(sentences: CitationSentence[]): string {
-  const fragments = sentences.map(sentence => cleanClusterFragment(sentence.text)).filter(Boolean);
-  if (fragments.length <= 1) return fragments[0] ?? '';
+  const rawFragments = sentences.map(sentence => sentence.text.trim()).filter(Boolean);
+  if (rawFragments.length <= 1) return cleanSentenceFragment(rawFragments[0] ?? '');
 
   // Whole-sentence clusters read better as short prose, not semicolon chains.
   // Clause clusters (notably supplement-stack lists) read better as comma lists.
-  if (fragments.some(looksLikeSentence)) return `${fragments.join('. ')}.`.replace(/\.\s*\./g, '.');
-  return naturalJoin(fragments, ', ');
+  if (rawFragments.some(looksLikeSentence)) return rawFragments.map(renderSentenceFragment).filter(Boolean).join(' ');
+  return naturalJoin(rawFragments.map(cleanClauseFragment).filter(Boolean), ', ');
 }
 
 function citedCluster(sentences: CitationSentence[]): string {
