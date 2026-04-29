@@ -332,8 +332,52 @@ function fallbackSentence(ev: RecallEvidence, citation: AnswerCitation, maxQuote
   return { text: truncateAtBoundary(compactWhitespace(ev.quote), maxQuoteChars), citation };
 }
 
+function citationKey(citation: AnswerCitation): string {
+  return `${citation.label}\u0000${citation.span_id}`;
+}
+
+function citationGroup(citations: AnswerCitation[]): string {
+  const ordered: AnswerCitation[] = [];
+  const seen = new Set<string>();
+  for (const citation of citations) {
+    const key = citationKey(citation);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    ordered.push(citation);
+  }
+  return ordered.map(citation => `[${citation.label}]`).join('');
+}
+
 function citedLine(sentence: CitationSentence): string {
-  return `${sentence.text} [${sentence.citation.label}]`;
+  return `${sentence.text} ${citationGroup([sentence.citation])}`;
+}
+
+function joinClusterText(sentences: CitationSentence[]): string {
+  return sentences
+    .map(sentence => sentence.text.replace(/\s+$/g, '').replace(/[.;:,]+$/g, ''))
+    .filter(Boolean)
+    .join('; ');
+}
+
+function citedCluster(sentences: CitationSentence[]): string {
+  if (!sentences.length) return '';
+  return `${joinClusterText(sentences)} ${citationGroup(sentences.map(sentence => sentence.citation))}`;
+}
+
+function clusterByCitation(sentences: CitationSentence[]): CitationSentence[][] {
+  const clusters: CitationSentence[][] = [];
+  for (const sentence of sentences) {
+    const previous = clusters.at(-1);
+    if (previous && citationKey(previous[0].citation) === citationKey(sentence.citation)) previous.push(sentence);
+    else clusters.push([sentence]);
+  }
+  return clusters;
+}
+
+function renderStructuredSection(heading: string, picked: CitationSentence[]): string[] {
+  const clusters = clusterByCitation(picked).map(citedCluster).filter(Boolean);
+  if (clusters.length <= 2) return [`- ${heading}: ${clusters.join(' ')}`];
+  return [`- ${heading}:`, ...clusters.map(cluster => `  - ${cluster}`)];
 }
 
 function buildStructuredAnswer(query: string, evidence: RecallEvidence[], citations: AnswerCitation[], maxQuoteChars: number): string {
@@ -345,7 +389,7 @@ function buildStructuredAnswer(query: string, evidence: RecallEvidence[], citati
     for (const spec of sectionSpecs(shape)) {
       const picked = selectSentences(evidence, citations, spec.terms, spec.maxSentences ?? 2, maxQuoteChars, used, spec.extraction ?? 'sentence');
       if (!picked.length) continue;
-      lines.push(`- ${spec.heading}: ${picked.map(citedLine).join(' ')}`);
+      lines.push(...renderStructuredSection(spec.heading, picked));
     }
   }
 

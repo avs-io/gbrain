@@ -97,6 +97,21 @@ Switching to 100 mg ferrous ascorbate daily is a **slow, GI-hard path** that ris
   }],
 ]);
 
+function countOccurrences(text: string, needle: string): number {
+  return text.split(needle).length - 1;
+}
+
+function sectionBody(answer: string, heading: string): string {
+  const start = answer.indexOf(`- ${heading}:`);
+  if (start < 0) return '';
+  const rest = answer.slice(start);
+  const nextSection = rest.slice(1).search(/\n- [^\n]+:/);
+  const evidenceStart = rest.indexOf('\n\nEvidence spans:');
+  const endCandidates = [nextSection >= 0 ? nextSection + 1 : -1, evidenceStart].filter(n => n >= 0);
+  const end = endCandidates.length ? Math.min(...endCandidates) : rest.length;
+  return rest.slice(0, end);
+}
+
 function engine(): BrainEngine {
   return {
     kind: 'postgres',
@@ -128,6 +143,7 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('10:05 instead of 10');
     expect(answer.answer).toContain('Archana — thank you');
     expect(answer.answer).toContain('gbs1:');
+    expect(sectionBody(answer.answer, 'High-friction Rukam incidents')).not.toMatch(/\[S1\].{0,40}\[S1\]/s);
   });
 
   test('recalls and synthesizes ACC before MWAL and why MWAL/adjacent rails were not pursued as standalone primary', async () => {
@@ -152,6 +168,7 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).not.toContain('> **Build');
     expect(answer.answer).not.toContain('cite');
     expect(answer.answer).not.toContain('family durability');
+    expect(sectionBody(answer.answer, 'Why ACC/MWAL were not enough as the base rail')).not.toMatch(/\[S2\].{0,40}\[S2\]/s);
   });
 
   test('recalls and synthesizes Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
@@ -179,5 +196,8 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('Ferrous bisglycinate 45 mg');
     expect(answer.answer).toContain('ferritin 19.9 ng/mL');
     expect(answer.answer).toContain('[S1]');
+    const supplementSection = sectionBody(answer.answer, 'Supplement stack captured in source');
+    expect(countOccurrences(supplementSection, '[S1]')).toBeLessThanOrEqual(4);
+    expect(supplementSection).not.toMatch(/\[S1\].{0,40}\[S1\]/s);
   });
 });
