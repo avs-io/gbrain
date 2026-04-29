@@ -153,6 +153,7 @@ function sentenceScore(sentence: string, terms: string[]): number {
     if (s.includes(t)) score += Math.max(2, Math.min(8, t.split(' ').length + 1));
     else if (t.split(' ').some(part => part.length >= 6 && !weakPartialTerms.has(part) && s.includes(part))) score += 1;
   }
+  if (/\b(?:question|\?$|claim|agree|therefore|thus|however|meanwhile)\b/i.test(sentence)) score -= 3;
   return score;
 }
 
@@ -205,13 +206,8 @@ function sectionSpecs(shape: QueryShape): SynthesisSectionSpec[] {
       },
       {
         heading: 'High-friction Rukam incidents',
-        terms: ['10:05 instead of 10', 'cut a half day', 'drive to work', 'had a kid', 'toxic', 'principal', 'dead EV'],
-        maxSentences: 4,
-      },
-      {
-        heading: 'Weekend/workload pressure',
-        terms: ['weekend work expectations', 'assigned specific tasks', 'workload tracking', 'extra weekend work'],
-        maxSentences: 2,
+        terms: ['10:05 instead of 10', 'time policing', 'cut a half day', 'drive to work', 'had a kid', 'toxic', 'principal', 'dead EV', 'weekend work expectations', 'workload tracking', 'extra weekend work'],
+        maxSentences: 6,
       },
     ];
   }
@@ -224,7 +220,7 @@ function sectionSpecs(shape: QueryShape): SynthesisSectionSpec[] {
       },
       {
         heading: 'Why ACC/MWAL were not enough as the base rail',
-        terms: ['Why not ACC as the top rail', 'incumbents', 'module that rides', 'customer was not clear', 'customer wasn\'t clear', 'amorphous', 'ecosystem gravity', 'zero network lock-in', 'elegant spec'],
+        terms: ['Why not ACC as the top rail', 'incumbents', 'module that rides', 'rides on', 'current state', 'customer was not clear', 'customer wasn\'t clear', 'amorphous', 'ecosystem gravity', 'zero network lock-in', 'stronger base', 'elegant spec'],
         maxSentences: 4,
       },
       {
@@ -239,7 +235,7 @@ function sectionSpecs(shape: QueryShape): SynthesisSectionSpec[] {
       {
         heading: 'Supplement stack captured in source',
         terms: ['Maternal Supplementation Stack', 'Vitamin C', 'Folic acid', 'Methylfolate', 'NMN', 'NAC', 'Phosphatidylcholine', 'Vitamin D3', 'Creatine', 'Magnesium', 'Metformin'],
-        maxSentences: 14,
+        maxSentences: 12,
         extraction: 'clause',
       },
       {

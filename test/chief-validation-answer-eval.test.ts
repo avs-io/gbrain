@@ -106,7 +106,7 @@ Claim: Workload Tracking: User maintains a detailed log of extra weekend work in
       warnings: [],
       integration: { search_source: 'direct' },
     },
-    required: ['Relationship frame', 'High-friction Rukam incidents', 'Weekend/workload pressure', '10:05 instead of 10', 'Archana — thank you', 'weekend work expectations'],
+    required: ['Relationship frame', 'High-friction Rukam incidents', '10:05 instead of 10', 'Archana — thank you', 'weekend work expectations'],
     forbidden: ['Additional exact source window', 'green tea', 'cite', '> **Build'],
   },
   {

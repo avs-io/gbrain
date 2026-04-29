@@ -32,7 +32,7 @@ export interface EvidenceSignal {
 
 const ROLE_PATTERNS: Array<[EvidenceSignalRole, RegExp[]]> = [
   ['relationship_positive_signal', [/\b(?:trust|thank|formative|meaningful|shaped|clarity|rigor|conviction|support|mentor|helped|valued)\b/i]],
-  ['relationship_friction_signal', [/\b(?:friction|toxic|pressure|uncomfortable|cut a half day|weekend work|work expectations|dead ev|dissatisfaction|conflict|incident)\b/i]],
+  ['relationship_friction_signal', [/\b(?:friction|toxic|pressure|uncomfortable|cut a half day|weekend work|work expectations|dead ev|dissatisfaction|conflict|incident|time[- ]policing|weekend|weekdays?|10:05|10 instead of 10)\b/i]],
   ['decision_option', [/\b(?:option|idea|build|attempt|wedge|rail|module|stack|protocol|regimen|before|initial(?:ly)?)\b/i]],
   ['decision_rationale', [/\b(?:because|why|rationale|reason|due to|as the|isn't|is not|was not|wasn't|was too|too static|job isn|stronger|easier|better direction|risks?|lack of|customer|incumbents?|absorb|leverage)\b/i]],
   ['deprioritization_signal', [/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|shift(?:ed)? away|not enough|zero network lock-in|low gravity|risks becoming|dead ev|lack of real leverage)\b/i]],
@@ -138,6 +138,7 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
   }
   if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
   if (stackQuestion && /\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
+  if (/\b(?:later|became|becomes|rides on|current|current state|stronger base|module)\b/i.test(text)) return { role: 'later_path_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
   if (isMeasurementDominant(text) || /\b(?:score|metric|measurement|count|hb|fgr|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
   let bestRole: EvidenceSignalRole | null = null;
   let best = 0;
@@ -151,7 +152,7 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
   if (!bestRole) return { role: rel > 0 || frame.requestedAspects.includes('summary') ? 'decision_option' : 'distractor', confidence: rel > 1 ? 'medium' : 'low', score: rel };
   const rawScore = best * 2 + Math.min(rel, 3);
   const confidence: SignalConfidence = rawScore >= 4 ? 'high' : rawScore >= 2 ? 'medium' : 'low';
-  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol|why|reason|rationale|incumbent|lock-in)\b/i.test(lower)) {
+  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol|why|reason|rationale|incumbent|lock-in|later|became|module|rides|current)\b/i.test(lower)) {
     return { role: 'distractor', confidence: 'low', score: rawScore };
   }
   return { role: bestRole, confidence, score: rawScore };

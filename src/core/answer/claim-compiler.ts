@@ -21,6 +21,16 @@ function sentence(text: string): string {
   return /[.!?]$/.test(cleaned) ? cleaned : `${cleaned}.`;
 }
 
+function isQuestionFragment(text: string): boolean {
+  return /\b(?:what|why|how|when|who|where|which)\b.*\?$|\?$/.test(text.trim());
+}
+
+function sentenceLike(text: string): string {
+  const cleaned = sentence(text).replace(/\s+/g, ' ').trim();
+  if (!cleaned) return cleaned;
+  return isQuestionFragment(cleaned) ? cleaned.replace(/\?+$/, '.').replace(/\.$/, '.') : cleaned;
+}
+
 function claimKind(slotId: string, signals: EvidenceSignal[]): ClaimAtom['kind'] {
   if (signals.some(signal => signal.role === 'measurement')) return 'normalized_fact';
   if (slotId === 'stack') return 'list_aggregate';
@@ -35,15 +45,16 @@ function compactListText(signals: EvidenceSignal[], maxQuoteChars: number): stri
     const piece = signal.text
       .replace(/\bciteturn\w+\b/gi, '')
       .replace(/\bturn\d+search\d+\b/gi, '')
+      .replace(/\?$|\.+$/g, '')
       .trim();
     if (!piece) continue;
     if (chunks.some(existing => existing === piece)) continue;
     chunks.push(piece);
   }
-  const text = chunks.join('; ').trim();
-  if (text.length <= maxQuoteChars) return sentence(text);
+  const text = chunks.join(', ').trim();
+  if (text.length <= maxQuoteChars) return sentenceLike(text);
   const cut = text.slice(0, Math.max(0, maxQuoteChars - 1));
-  const boundary = Math.max(cut.lastIndexOf('; '), cut.lastIndexOf(', '), cut.lastIndexOf(' '));
+  const boundary = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf(' '));
   return `${(boundary > maxQuoteChars * 0.5 ? cut.slice(0, boundary) : cut).trim()}…`;
 }
 
@@ -135,7 +146,7 @@ export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceW
     const citations = selected.map(signal => citationFor(signal, evidenceById));
     const text = cluster.slotId === 'stack'
       ? compactListText(selected, maxQuoteChars)
-      : sentence(selected.map(signal => signal.text).join(' '));
+      : sentenceLike(selected.map(signal => signal.text).join(' '));
     claims.push({
       id: `claim_${claims.length + 1}`,
       kind: claimKind(cluster.slotId, selected),

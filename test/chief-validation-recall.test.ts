@@ -146,7 +146,7 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.status).toBe('hit');
     expect(answer.answer).toContain('Relationship frame');
     expect(answer.answer).toContain('High-friction Rukam incidents');
-    expect(answer.answer).toContain('Weekend/workload pressure');
+    expect(answer.answer).toContain('weekend work expectations');
     expect(answer.answer).toContain('10:05 instead of 10');
     expect(answer.answer).toContain('Archana — thank you');
     expect(answer.answer).toContain('gbs1:');
