@@ -46,13 +46,37 @@ function dedupeRenderedLines(lines: string[]): string[] {
 export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSignalCluster[], shape: AnswerShapeDef, evidence: EvidenceWindow[], missingSlots: string[]): RenderedAnswer {
   const sections: AnswerSection[] = [];
   const lines: string[] = [`${shape.title}:`];
+  const claimIdsWithRenderableText = new Set<string>();
+  const renderedClaimText = new Set<string>();
+
+  function pushSection(id: string, title: string, claimIds: string[]): void {
+    if (claimIds.length === 0) return;
+    sections.push({ id, title, claimIds });
+  }
+
+  function hasRenderableText(claim: ClaimAtom): boolean {
+    return claim.text.trim().length > 0;
+  }
+
+  function takeRenderableClaims(candidateClaims: ClaimAtom[]): ClaimAtom[] {
+    const out: ClaimAtom[] = [];
+    for (const claim of candidateClaims) {
+      if (!hasRenderableText(claim)) continue;
+      const fingerprint = claim.text.trim().toLowerCase().replace(/\s+/g, ' ');
+      if (renderedClaimText.has(fingerprint)) continue;
+      renderedClaimText.add(fingerprint);
+      out.push(claim);
+    }
+    return out;
+  }
 
   for (const cluster of clusters) {
-    const clusterClaims = claims.filter(claim => claim.slotId === cluster.slotId);
+    const clusterClaims = takeRenderableClaims(claims.filter(claim => claim.slotId === cluster.slotId));
     if (clusterClaims.length === 0) continue;
-    sections.push({ id: cluster.slotId, title: cluster.title, claimIds: clusterClaims.map(claim => claim.id) });
+    pushSection(cluster.slotId, cluster.title, clusterClaims.map(claim => claim.id));
     lines.push('', `${cluster.title}:`);
     for (const claim of clusterClaims) {
+      claimIdsWithRenderableText.add(claim.id);
       lines.push(`- ${claim.text}${citationLabel(claim)}`);
     }
   }
@@ -60,19 +84,21 @@ export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSig
   const sectionedClaimIds = new Set(sections.flatMap(section => section.claimIds));
   for (const claim of claims) {
     if (sectionedClaimIds.has(claim.id)) continue;
+    const [renderableClaim] = takeRenderableClaims([claim]);
+    if (!renderableClaim) continue;
     let section = sections.find(s => s.id === 'other');
     if (!section) {
       section = { id: 'other', title: 'Other supported evidence', claimIds: [] };
       sections.push(section);
       lines.push('', 'Other supported evidence:');
     }
-    section.claimIds.push(claim.id);
-    lines.push(`- ${claim.text}${citationLabel(claim)}`);
+    section.claimIds.push(renderableClaim.id);
+    lines.push(`- ${renderableClaim.text}${citationLabel(renderableClaim)}`);
   }
 
   if (missingSlots.length > 0) {
     lines.push('', `Missing slots: ${missingSlots.join(', ')}`);
   }
 
-  return { answer: dedupeRenderedLines(lines).join('\n'), sections, citations: buildCitationIndex(claims, evidence) };
+  return { answer: dedupeRenderedLines(lines).join('\n'), sections: sections.filter(section => section.claimIds.length > 0), citations: buildCitationIndex(claimIdsWithRenderableText.size > 0 ? claims.filter(claim => claimIdsWithRenderableText.has(claim.id)) : [], evidence) };
 }

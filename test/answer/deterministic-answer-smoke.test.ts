@@ -83,4 +83,22 @@ describe('deterministic-v2 answer envelope', () => {
     expect(payload.claims[0].citations[0].id).toBe(recall.evidence[0].span_id);
     expect(process.exitCode).toBeUndefined();
   });
+
+  test('does not render empty sections after duplicate suppression', () => {
+    const envelope = buildDeterministicAnswerEnvelope({
+      ...recall,
+      evidence: [
+        {
+          ...recall.evidence[0],
+          span_id: 'gbs1:default:sources/test/citadel#compiled_truth:L12-L13',
+          quote: 'Citadel was too static. The better direction was living memory.',
+          quote_hash: 'e'.repeat(64),
+        },
+      ],
+    }, { maxEvidence: 4, maxQuoteChars: 200 });
+
+    expect(envelope.validation.ok).toBe(true);
+    expect(envelope.sections.every(section => section.claimIds.length > 0)).toBe(true);
+    expect(envelope.answer).not.toContain('Rationale:\n\n');
+  });
 });

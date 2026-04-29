@@ -57,8 +57,10 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
   const clusters = clusterSignalsBySlot(signals, shape);
   const compiled = compileClaims(clusters, evidence, queryFrame, { maxQuoteChars });
   const validation = validateClaimCitations(compiled.claims, evidence);
-  const status = validation.ok ? (compiled.missingSlots.length > 0 ? 'partial' : 'hit') : 'invalid';
   const rendered = validation.ok ? renderDeterministicAnswer(compiled.claims, clusters, shape, evidence, compiled.missingSlots) : { answer: '', sections: [], citations: [] };
+  const status = validation.ok
+    ? (compiled.missingSlots.length > 0 ? 'partial' : 'hit')
+    : 'invalid';
 
   return {
     schema: ANSWER_ENVELOPE_SCHEMA,

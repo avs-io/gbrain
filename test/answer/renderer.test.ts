@@ -19,4 +19,19 @@ describe('deterministic renderer', () => {
     expect(rendered.sections.length).toBeGreaterThan(0);
     expect(rendered.citations.every(c => c.id.startsWith('gbs1:'))).toBe(true);
   });
+
+  test('suppresses empty sections and avoids orphan section ids when claims dedupe away', () => {
+    const frame = buildQueryFrame('Why did Project Atlas change?');
+    const evidence = [ev('a', 'Project Atlas was too static. The better direction was living memory.')];
+    const shape = selectAnswerShape(frame);
+    const clusters = clusterSignalsBySlot(classifyEvidenceSignals(evidence, frame), shape);
+    const compiled = compileClaims(clusters, evidence, frame);
+
+    const patchedClaims = compiled.claims.map(claim => claim.slotId === 'rationale' ? { ...claim, text: '', citations: [] } : claim);
+    const rendered = renderDeterministicAnswer(patchedClaims, clusters, shape, evidence, compiled.missingSlots);
+
+    expect(rendered.sections.some(section => section.id === 'rationale')).toBe(false);
+    expect(rendered.answer).not.toContain('Rationale:');
+    expect(rendered.sections.every(section => section.claimIds.length > 0)).toBe(true);
+  });
 });
