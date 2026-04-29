@@ -1,9 +1,10 @@
 import { enqueueJob, listJobs, retryJob } from '../core/ai/job-queue.ts';
 import { routeModel } from '../core/ai/model-router.ts';
 import { buildMemoryAtomProposal, enqueueMemoryAtomProposal, listMemoryAtomProposals, proposeMemoryAtomFromSpan } from '../core/ai/memory-atom-proposal.ts';
+import { verifyClaimSupport } from '../core/ai/claim-support-verifier.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
 
-function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[] } {
+function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string } {
   let kind: WorkKind | undefined;
   let privacy: PrivacyTier | undefined;
   let json = false;
@@ -21,6 +22,8 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
   let atomType: string | undefined;
   let sensitivity: string | undefined;
   let subjectEntities: string[] | undefined;
+  let quote: string | undefined;
+  let explanation: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
@@ -51,9 +54,13 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
     else if (a?.startsWith('--sensitivity=')) sensitivity = a.slice(14);
     else if (a === '--subject-entity') (subjectEntities ||= []).push(args[++i]);
     else if (a?.startsWith('--subject-entity=')) (subjectEntities ||= []).push(a.slice(17));
+    else if (a === '--quote') quote = args[++i];
+    else if (a?.startsWith('--quote=')) quote = a.slice(8);
+    else if (a === '--explanation') explanation = args[++i];
+    else if (a?.startsWith('--explanation=')) explanation = a.slice(14);
     else if (a && !a.startsWith('--') && !id) id = a;
   }
-  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities };
+  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation };
 }
 
 export async function runAiCommand(_engine: unknown, args: string[]): Promise<void> {
@@ -69,9 +76,16 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
   if (sub === 'memory-atoms') {
     const [action, ...atomArgs] = rest;
     const flags = parse(atomArgs);
+    if (action === 'verify') {
+      if (!flags.claim || !flags.spanId || !flags.quote) throw new Error('Usage: gbrain ai memory-atoms verify --claim <text> --from-span <gbs1> --quote <text> [--explanation <text>] [--json]');
+      const result = verifyClaimSupport({ claim: flags.claim, evidence_spans: [{ span_id: flags.spanId, quote: flags.quote }], explanation: flags.explanation });
+      if (flags.json) console.log(JSON.stringify(result, null, 2));
+      else console.log(result.support_level);
+      return;
+    }
     if (action === 'propose') {
       if (!flags.spanId || !flags.claim || !flags.atomType || !flags.namespace || !flags.sensitivity) throw new Error('Usage: gbrain ai memory-atoms propose --from-span <gbs1> --claim <text> --atom-type <type> --namespace <ns> --sensitivity <P0|P1|P2|P3> [--dry-run|--yes] [--json]');
-      const proposalResult = proposeMemoryAtomFromSpan({ span_id: flags.spanId, claim: flags.claim, atom_type: flags.atomType as any, suggested_namespace: flags.namespace, sensitivity: flags.sensitivity as any, subject_entities: flags.subjectEntities, quote: flags.claim });
+      const proposalResult = proposeMemoryAtomFromSpan({ span_id: flags.spanId, claim: flags.claim, atom_type: flags.atomType as any, suggested_namespace: flags.namespace, sensitivity: flags.sensitivity as any, subject_entities: flags.subjectEntities, quote: flags.quote || flags.claim });
       if (!proposalResult.ok || !proposalResult.proposal) {
         const payload = { ok: false, errors: proposalResult.errors || ['failed to build memory atom proposal'] };
         console.log(JSON.stringify(payload, null, 2));
@@ -121,5 +135,5 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
       return;
     }
   }
-  throw new Error('Usage: gbrain ai route ... | gbrain ai jobs enqueue|list|retry ... | gbrain ai memory-atoms propose|list ...');
+  throw new Error('Usage: gbrain ai route ... | gbrain ai jobs enqueue|list|retry ... | gbrain ai memory-atoms verify|propose|list ...');
 }

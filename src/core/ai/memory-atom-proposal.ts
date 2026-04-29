@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { configDir } from '../config.ts';
 import { parseSpanId } from '../evidence/source-window.ts';
 import { validateNamespacePolicy } from '../memory/namespace-policy.ts';
+import { verifyClaimSupport } from './claim-support-verifier.ts';
 
 export type MemoryAtomType = 'episode' | 'semantic_fact' | 'preference_signal' | 'relationship_memory' | 'opportunity_memory' | 'procedure_memory' | 'identity_constraint' | 'world_model_claim';
 export type MemoryAtomSupportLevel = 'direct_quote' | 'strong_inference' | 'weak_inference' | 'unsupported';
@@ -123,6 +124,8 @@ export function proposeMemoryAtomFromSpan(input: {
     const parsed = parseSpanId(input.span_id);
     if (!input.span_id.startsWith('gbs1:')) return { ok: false, errors: ['from-span must be a gbs1 span'] };
     if (!input.quote || !input.quote.trim()) return { ok: false, errors: ['quote is required for direct_quote proposals'] };
+    const support = verifyClaimSupport({ claim: input.claim, evidence_spans: [{ span_id: input.span_id, quote: input.quote, source_item_id: `${parsed.sourceId}:${parsed.slug}` }] });
+    if (!support.ok || support.support_level !== 'direct_quote') return { ok: false, errors: [`claim support must verify direct_quote: ${support.reasons.join('; ') || 'unsupported'}`] };
     const proposal = buildMemoryAtomProposal({
       source_item_id: `${parsed.sourceId}:${parsed.slug}`,
       evidence_span_ids: [input.span_id],
