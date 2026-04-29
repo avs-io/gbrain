@@ -5,3 +5,7 @@ export * from './deterministic-answer.ts';
 export * from './synthesis-dsl.ts';
 export * from './query-frame.ts';
 export * from './shape-selector.ts';
+export * from './evidence-classify.ts';
+export * from './signal-cluster.ts';
+export * from './claim-compiler.ts';
+export * from './renderer.ts';

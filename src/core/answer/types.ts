@@ -46,6 +46,8 @@ export interface ClaimAtom {
   text: string;
   factual: boolean;
   citations: CitationRef[];
+  slotId?: string;
+  supportSignalIds?: string[];
 }
 
 export interface AnswerSection {

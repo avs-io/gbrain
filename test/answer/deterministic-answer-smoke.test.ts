@@ -46,14 +46,14 @@ afterEach(() => {
 });
 
 describe('deterministic-v2 answer envelope', () => {
-  test('emits one direct_quote claim per exact normalized evidence window', () => {
+  test('emits source-backed compiled claims from exact normalized evidence windows', () => {
     const envelope = buildDeterministicAnswerEnvelope(recall, { maxEvidence: 2, maxQuoteChars: 200 });
 
     expect(envelope.schema).toBe('gbrain.answer_envelope.v2');
     expect(envelope.status).toBe('hit');
     expect(envelope.synthesis).toBe('deterministic-v2');
-    expect(envelope.claims).toHaveLength(1);
-    expect(envelope.claims[0]).toMatchObject({ kind: 'direct_quote', factual: true });
+    expect(envelope.claims.length).toBeGreaterThan(0);
+    expect(envelope.claims.every(claim => !claim.factual || claim.citations.length > 0)).toBe(true);
     expect(envelope.claims[0].citations[0].id).toBe(recall.evidence[0].span_id);
     expect(envelope.validation.ok).toBe(true);
   });
