@@ -7,11 +7,12 @@ import { routeTypedMemory } from '../core/memory/typed-memory-router.ts';
 import { loadContextPackV2, type GBrainContextPackMode } from '../core/memory/context-pack.ts';
 import { GBRAIN_NAMESPACES, GBRAIN_PRIVACY_LEVELS, GBRAIN_SENSITIVITY_LEVELS, type GBrainNamespace, type GBrainPrivacy, type GBrainSensitivity } from '../core/memory/namespace-policy.ts';
 import { buildRadarReport, scoreRadarCandidates } from '../core/memory/radar.ts';
+import { reduceReviewJsonlToProposalPacket } from '../core/memory/reducer-bridge.ts';
 import { loadScoutInputs, runScoutDryRun, validateScoutObservation, validateScoutRecipe, type ScoutObservation } from '../core/memory/scoutnet.ts';
 
 export type MemoryProposalCommandResult = {
   ok: boolean;
-  action: 'validate' | 'enqueue' | 'list' | 'export' | 'route' | 'surface' | 'context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list';
+  action: 'validate' | 'enqueue' | 'list' | 'export' | 'reduce' | 'route' | 'surface' | 'context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list';
   dryRun?: boolean;
   queued?: boolean;
   duplicate?: boolean;
@@ -51,6 +52,9 @@ const require = createRequire(import.meta.url);
 
 function workspaceRoot(): string {
   const cwd = process.cwd();
+  const generatorRel = 'ops/gbrain-memory-engine/generate-surfacing-proposal-packet.js';
+  if (existsSync(join(cwd, generatorRel))) return cwd;
+  if (existsSync(join(dirname(cwd), generatorRel))) return dirname(cwd);
   if (cwd.endsWith('/gbrain')) return dirname(cwd);
   return cwd;
 }
@@ -613,6 +617,55 @@ export async function runMemory(args: string[]): Promise<void> {
     return;
   }
 
+  if (sub === 'reduce') {
+    const claimLedgerPath = flagValue(subArgs, '--claim-ledger');
+    const memoryQueuePath = flagValue(subArgs, '--memory-queue') || flagValue(subArgs, '--queue');
+    if (!claimLedgerPath && !memoryQueuePath) {
+      console.error('Missing input: pass --claim-ledger <claim-ledger.jsonl> and/or --memory-queue <memory-proposals.jsonl>');
+      process.exit(1);
+    }
+    const reduced = reduceReviewJsonlToProposalPacket({
+      claimLedgerPath,
+      memoryQueuePath,
+      limit: Number(flagValue(subArgs, '--limit') || 50),
+    });
+    const packetErrors = reduced.ok ? validateSurfacingProposalPacket(reduced.packet) : [];
+    if (packetErrors.length) {
+      reduced.ok = false;
+      reduced.errors.push(...packetErrors.map(e => `packet: ${e}`));
+      reduced.packet.validation.pass = false;
+      reduced.packet.validation.errors = reduced.errors;
+    }
+
+    const outputPath = flagValue(subArgs, '--output') || flagValue(subArgs, '--out');
+    if (outputPath && reduced.ok) {
+      ensureParent(outputPath);
+      writeFileSync(outputPath, JSON.stringify(reduced.packet, null, 2) + '\n', 'utf-8');
+    }
+
+    const shouldEnqueue = hasFlag(subArgs, '--enqueue');
+    const dryRun = shouldEnqueue && (hasFlag(subArgs, '--dry-run') || !hasFlag(subArgs, '--yes'));
+    const enqueueResult = shouldEnqueue && reduced.ok ? enqueueMemoryProposalPacket(reduced.packet, { dryRun }) : undefined;
+    const ok = reduced.ok && (!shouldEnqueue || enqueueResult?.ok === true);
+
+    if (hasFlag(subArgs, '--json')) printJson({ ...reduced, ok, outputPath: outputPath || undefined, written: Boolean(outputPath && reduced.ok), enqueue: enqueueResult });
+    else {
+      if (reduced.ok) console.log(`PASS reducer bridge: candidates=${reduced.stats.candidate_count} claims=${reduced.stats.claim_records_read} memory_proposals=${reduced.stats.memory_proposals_read}`);
+      else console.error(`Reducer bridge failed:\n- ${reduced.errors.join('\n- ')}`);
+      console.log('review-only: trusted_pages_edited=false external_messages_sent=false global_config_changed=false database_written=false');
+      if (outputPath && reduced.ok) console.log(`Wrote reducer proposal packet: ${outputPath}`);
+      if (shouldEnqueue) {
+        if (!enqueueResult?.ok) console.error(`Reducer packet invalid for enqueue:\n- ${(enqueueResult?.errors || []).join('\n- ')}`);
+        else if (enqueueResult.duplicate) console.log(`Memory proposal already queued: ${enqueueResult.proposal?.id}`);
+        else if (dryRun) console.log(`Dry run: reducer packet would enqueue to ${enqueueResult.queuePath}`);
+        else console.log(`Queued reducer proposal: ${enqueueResult.proposal?.id}`);
+      }
+      if (reduced.warnings.length) console.log(`warnings: ${reduced.warnings.join('; ')}`);
+    }
+    if (!ok) process.exit(1);
+    return;
+  }
+
   if (sub === 'list') {
     const result = listMemoryProposalPackets();
     if (hasFlag(subArgs, '--json')) printJson(result);
@@ -692,6 +745,7 @@ gbrain memory radar score --input <scout-dry-run-report.json> [--output <radar-r
 gbrain memory radar list  --input <scout-dry-run-report.json> [--json]
 gbrain memory proposals validate --packet <packet.json> [--json]
 gbrain memory proposals enqueue  --packet <packet.json> [--dry-run|--yes] [--json]
+gbrain memory proposals reduce   [--claim-ledger <claim-ledger.jsonl>] [--memory-queue <memory-proposals.jsonl>] [--output <packet.json>] [--enqueue] [--dry-run|--yes] [--json]
 gbrain memory proposals list [--json]
 gbrain memory proposals export [--format markdown] [--output <review.md>] [--json]
 
