@@ -42,8 +42,9 @@ const ARTIFACT_PATTERNS = [/citeturn\d+search\d+/i, /turn\d+search\d+/i, /###\s*
 function collectReasons(envelope: AnswerEnvelope, expectation: AnswerPromotionCaseExpectation): string[] {
   const reasons: string[] = [];
   if (envelope.schema !== ANSWER_ENVELOPE_SCHEMA) reasons.push(`unexpected envelope schema: ${envelope.schema}`);
-  if (!envelope.evidence.every(isExactEvidenceWindow)) reasons.push('non-gbs1 evidence present');
-  if (envelope.claims.some(claim => claim.citations.some(citation => !citation.id.startsWith('gbs1:')))) reasons.push('non-gbs1 citations present');
+  if (!Array.isArray(envelope.evidence) || !envelope.evidence.every(isExactEvidenceWindow)) reasons.push('non-gbs1 evidence present');
+  if (!Array.isArray(envelope.claims)) reasons.push('claims array missing');
+  else if (envelope.claims.some(claim => !Array.isArray(claim.citations) || claim.citations.some(citation => !citation.id.startsWith('gbs1:')))) reasons.push('non-gbs1 citations present');
   if (envelope.answer && ARTIFACT_PATTERNS.some(pattern => pattern.test(envelope.answer))) reasons.push('artifact strings present in answer');
   if (typeof expectation.max_length === 'number' && envelope.answer.length > expectation.max_length) reasons.push(`answer exceeds max_length ${expectation.max_length}`);
   if (expectation.expected_abstain === true && envelope.status !== 'abstain') reasons.push('expected abstain but envelope did not abstain');
@@ -69,7 +70,7 @@ export function evaluateAnswerPromotionCases(cases: AnswerPromotionCase[]): Answ
     fail_count,
     failures,
     gate_version: ANSWER_PROMOTION_GATE_VERSION,
-    recommendation: fail_count === 0 ? 'eligible_for_limited_exposure' : 'keep_hidden',
+    recommendation: fail_count === 0 && cases.length > 0 ? 'eligible_for_limited_exposure' : 'keep_hidden',
   };
 }
 
