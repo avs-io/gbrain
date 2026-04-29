@@ -1,10 +1,12 @@
-import { enqueueJob, listJobs, retryJob } from '../core/ai/job-queue.ts';
+import { readFile } from 'node:fs/promises';
+import { enqueueJob, listJobs, retryJob, updateJob } from '../core/ai/job-queue.ts';
 import { routeModel } from '../core/ai/model-router.ts';
 import { buildMemoryAtomProposal, enqueueMemoryAtomProposal, listMemoryAtomProposals, proposeMemoryAtomFromSpan } from '../core/ai/memory-atom-proposal.ts';
 import { verifyClaimSupport } from '../core/ai/claim-support-verifier.ts';
+import { runLocalIntelligenceJob } from '../core/ai/local-runner.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
 
-function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string } {
+function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string } {
   let kind: WorkKind | undefined;
   let privacy: PrivacyTier | undefined;
   let json = false;
@@ -24,6 +26,7 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
   let subjectEntities: string[] | undefined;
   let quote: string | undefined;
   let explanation: string | undefined;
+  let jobJson: string | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
@@ -58,9 +61,13 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
     else if (a?.startsWith('--quote=')) quote = a.slice(8);
     else if (a === '--explanation') explanation = args[++i];
     else if (a?.startsWith('--explanation=')) explanation = a.slice(14);
+    else if (a === '--job-id') id = args[++i];
+    else if (a?.startsWith('--job-id=')) id = a.slice(9);
+    else if (a === '--job-json') jobJson = args[++i];
+    else if (a?.startsWith('--job-json=')) jobJson = a.slice(11);
     else if (a && !a.startsWith('--') && !id) id = a;
   }
-  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation };
+  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities, quote, explanation, jobJson };
 }
 
 export async function runAiCommand(_engine: unknown, args: string[]): Promise<void> {
@@ -108,6 +115,21 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
   if (sub === 'jobs') {
     const [action, ...jobArgs] = rest;
     const flags = parse(jobArgs);
+    if (action === 'run') {
+      const queuePath = flags.queuePath;
+      const job = flags.jobJson ? JSON.parse(await readFile(flags.jobJson, 'utf8')) : (() => {
+        if (!flags.id) throw new Error('Usage: gbrain ai jobs run --queue-path <path> --job-id <id> [--json]');
+        const listed = listJobs({ path: queuePath });
+        return listed.jobs.find(entry => entry.id === flags.id);
+      })();
+      if (!job) throw new Error('job not found');
+      const result = runLocalIntelligenceJob(job, { queuePath });
+      if (flags.yes && queuePath && job.id) {
+        updateJob({ id: job.id, status: result.status === 'succeeded' ? 'succeeded' : result.status === 'failed' ? 'failed' : 'queued', output_ref: JSON.stringify(result), error: result.errors.length ? result.errors.join('; ') : null, completed_at: new Date().toISOString() }, { path: queuePath });
+      }
+      console.log(JSON.stringify({ ...result, dry_run: !flags.yes }, null, 2));
+      return;
+    }
     if (action === 'enqueue') {
       if (!flags.kind || !flags.privacy || !flags.namespace || !flags.inputRef) throw new Error('Usage: gbrain ai jobs enqueue --kind <kind> --privacy <P0|P1|P2|P3> --namespace <ns> --input-ref <ref> [--provider <provider>] [--queue-path <path>] [--json]');
       const route = routeModel({ kind: flags.kind, privacy: flags.privacy, allowCloudEscalation: flags.allowCloudEscalation });
