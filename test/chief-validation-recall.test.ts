@@ -41,8 +41,8 @@ Claim: Workload Tracking: User maintains a detailed log of extra weekend work in
     slug: 'sources/chatgpt/full-export-all/2025-09-11-navigating-legacy-and-power-6888ddac',
     source_id: 'default',
     title: 'Navigating Legacy and Power',
-    compiled_truth: `Build the Agent Commerce Clearinghouse (ACC): portable receipts, settlement and arbitration for agent commerce.
-Why not ACC as the top rail? PSPs already bundle escrow/chargeback tooling and Visa VROL sits over disputes. Great wedge, but easier for incumbents to absorb; stronger as a module that rides on MWAL/C³ than as the base rail.
+    compiled_truth: `> **Build the Agent Commerce Clearinghouse (ACC):** portable receipts, settlement and arbitration for agent commerce. citeturn0search0
+- Why not ACC as the top rail? PSPs already bundle escrow/chargeback tooling and Visa VROL sits over disputes. Great wedge, but easier for incumbents to absorb; stronger as a module that rides on MWAL/C³ than as the base rail.
 This is for ACC. I thought you’d pivoted to mwal. Think deeply.
 With MWAL, the customer wasn't clear. The face of the customer was amorphous.`,
     timeline: '',
@@ -149,6 +149,8 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('Agent Commerce Clearinghouse (ACC)');
     expect(answer.answer).toContain('zero network lock-in');
     expect(answer.answer).toContain('policy theatre and lack of real leverage');
+    expect(answer.answer).not.toContain('> **Build');
+    expect(answer.answer).not.toContain('cite');
     expect(answer.answer).not.toContain('family durability');
   });
 
@@ -169,7 +171,13 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('Initial iron plan');
     expect(answer.answer).toContain('Ferrous ascorbate / ferritin context');
     expect(answer.answer).toContain('Maternal Supplementation Stack');
+    expect(answer.answer).toContain('NMN 500mg');
+    expect(answer.answer).toContain('NAC 600mg');
+    expect(answer.answer).toContain('Phosphatidylcholine 2g');
+    expect(answer.answer).toContain('Metformin');
+    expect(answer.answer).toContain('Magnesium Glycinate');
     expect(answer.answer).toContain('Ferrous bisglycinate 45 mg');
     expect(answer.answer).toContain('ferritin 19.9 ng/mL');
+    expect(answer.answer).toContain('[S1]');
   });
 });

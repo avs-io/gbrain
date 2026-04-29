@@ -47,13 +47,34 @@ interface SynthesisSectionSpec {
   heading: string;
   terms: string[];
   maxSentences?: number;
+  extraction?: 'sentence' | 'clause';
+}
+
+function stripSourceArtifacts(text: string): string {
+  return text
+    // ChatGPT/browser transcript citation glyphs sometimes survive inside source text.
+    .replace(/cite[^]*/g, '')
+    .replace(/\[Source:\s*[^\]]*\]/gi, '')
+    .replace(/^\s*(?:>\s*)+/gm, '')
+    .replace(/^\s*(?:[-*+]\s+|\d+[.)]\s+)/gm, '')
+    .replace(/`([^`]+)`/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*([^*]+)\*/g, '$1')
+    .replace(/_([^_]+)_/g, '$1')
+    .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+    .replace(/[ \t]+/g, ' ');
+}
+
+function cleanSourceLine(line: string): string {
+  return stripSourceArtifacts(line).trim().replace(/^[\s:–—-]+/, '').trim();
 }
 
 function compactWhitespace(text: string): string {
-  return text
+  return stripSourceArtifacts(text)
     .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map(line => line.trim())
+    .map(cleanSourceLine)
     .filter(Boolean)
     .join(' ')
     .replace(/\s+/g, ' ')
@@ -98,16 +119,23 @@ function splitSentences(text: string): string[] {
   const compacted = text
     .replace(/\r\n?/g, '\n')
     .split('\n')
-    .map(line => line.trim())
+    .map(cleanSourceLine)
     .filter(Boolean)
     .flatMap(line => line.split(/(?<=[.!?])\s+(?=[A-Z0-9*"'“])/g));
   return compacted.map(s => compactWhitespace(s)).filter(s => s.length >= 8);
 }
 
+function splitClauses(text: string): string[] {
+  return splitSentences(text)
+    .flatMap(sentence => sentence.split(/;\s+|,\s+(?=[A-Z][A-Za-z0-9 '+-]*(?:\d|mg|g|IU|BID|Daily|Multivitamin|Glycinate|Metformin|NAC|NMN|Vitamin|Folic|Phosphatidylcholine))/g))
+    .map(clause => compactWhitespace(clause))
+    .filter(clause => clause.length >= 3);
+}
+
 function sentenceScore(sentence: string, terms: string[]): number {
   const s = norm(sentence);
   let score = 0;
-  const weakPartialTerms = new Set(['constraint', 'constraints', 'capital', 'power', 'trust', 'clear', 'customer', 'sovereign', 'leverage']);
+  const weakPartialTerms = new Set(['constraint', 'constraints', 'capital', 'power', 'trust', 'clear', 'customer', 'sovereign', 'leverage', 'maternal', 'stack', 'supplementation']);
   for (const term of terms) {
     const t = norm(term);
     if (!t) continue;
@@ -128,12 +156,13 @@ function selectSentences(
   maxSentences: number,
   maxQuoteChars: number,
   alreadyUsed: Set<string>,
+  extraction: 'sentence' | 'clause' = 'sentence',
 ): CitationSentence[] {
   const candidates: Array<CitationSentence & { score: number; evIndex: number; sentenceIndex: number }> = [];
   for (let evIndex = 0; evIndex < evidence.length; evIndex++) {
     const ev = evidence[evIndex];
     const citation = citations[evIndex];
-    const sentences = splitSentences(ev.quote);
+    const sentences = extraction === 'clause' ? splitClauses(ev.quote) : splitSentences(ev.quote);
     for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
       const text = sentences[sentenceIndex];
       const score = sentenceScore(text, terms);
@@ -198,8 +227,9 @@ function sectionSpecs(shape: QueryShape): SynthesisSectionSpec[] {
     return [
       {
         heading: 'Supplement stack captured in source',
-        terms: ['Maternal Supplementation Stack', 'Vitamin C', 'Folic acid', 'Methylfolate', 'NMN', 'NAC', 'Phosphatidylcholine', 'Vitamin D3', 'Creatine', 'Metformin'],
-        maxSentences: 3,
+        terms: ['Maternal Supplementation Stack', 'Vitamin C', 'Folic acid', 'Methylfolate', 'NMN', 'NAC', 'Phosphatidylcholine', 'Vitamin D3', 'Creatine', 'Magnesium', 'Metformin'],
+        maxSentences: 14,
+        extraction: 'clause',
       },
       {
         heading: 'Initial iron plan',
@@ -313,7 +343,7 @@ function buildStructuredAnswer(query: string, evidence: RecallEvidence[], citati
 
   if (shape !== 'generic') {
     for (const spec of sectionSpecs(shape)) {
-      const picked = selectSentences(evidence, citations, spec.terms, spec.maxSentences ?? 2, maxQuoteChars, used);
+      const picked = selectSentences(evidence, citations, spec.terms, spec.maxSentences ?? 2, maxQuoteChars, used, spec.extraction ?? 'sentence');
       if (!picked.length) continue;
       lines.push(`- ${spec.heading}: ${picked.map(citedLine).join(' ')}`);
     }
