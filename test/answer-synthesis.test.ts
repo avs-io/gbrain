@@ -76,6 +76,54 @@ describe('answer synthesis from recall evidence', () => {
     expect(out.warnings.join(' ')).toContain('abstaining');
   });
 
+  test('prunes irrelevant autobiographical source windows instead of emitting noisy additional evidence', () => {
+    const noisyRecall: RecallResult = {
+      query: 'What was my relationship with Archana like and what high friction incidents existed?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/rukam-friction#compiled_truth:L1-L2',
+          source_id: 'default',
+          slug: 'sources/test/rukam-friction',
+          title: 'Rukam Friction',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 2,
+          quote: "I get called in every 2 days to say, you came in at 10:05 instead of 10, we might need to cut a half day. I haven't even told them I had a kid, because they're toxic that way.",
+          quote_hash: 'b'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.9,
+        },
+        {
+          span_id: 'gbs1:default:sources/test/irrelevant-window#compiled_truth:L1-L2',
+          source_id: 'default',
+          slug: 'sources/test/irrelevant-window',
+          title: 'Irrelevant Window',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 2,
+          quote: 'A random source window about green tea, weather, and unrelated logistics should not be surfaced in this answer.',
+          quote_hash: 'c'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'chunk',
+          score: 0.4,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(noisyRecall, { maxEvidence: 4, maxQuoteChars: 240 });
+
+    expect(out.status).toBe('hit');
+    expect(out.answer).toContain('10:05 instead of 10');
+    expect(out.answer).not.toContain('green tea');
+    expect(out.answer).not.toContain('Additional exact source window');
+    expect(out.citations.map(c => c.slug)).toEqual(['sources/test/rukam-friction']);
+    expect(out.warnings.join(' ')).toContain('low-relevance or duplicate source windows were excluded');
+  });
+
   test('answer CLI accepts recall JSON without needing a brain connection', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-answer-synthesis-'));
     const hitPath = join(dir, 'recall-hit.json');

@@ -107,11 +107,12 @@ function splitSentences(text: string): string[] {
 function sentenceScore(sentence: string, terms: string[]): number {
   const s = norm(sentence);
   let score = 0;
+  const weakPartialTerms = new Set(['constraint', 'constraints', 'capital', 'power', 'trust', 'clear', 'customer', 'sovereign', 'leverage']);
   for (const term of terms) {
     const t = norm(term);
     if (!t) continue;
     if (s.includes(t)) score += Math.max(2, Math.min(8, t.split(' ').length + 1));
-    else if (t.split(' ').some(part => part.length >= 5 && s.includes(part))) score += 1;
+    else if (t.split(' ').some(part => part.length >= 6 && !weakPartialTerms.has(part) && s.includes(part))) score += 1;
   }
   return score;
 }
@@ -215,6 +216,88 @@ function sectionSpecs(shape: QueryShape): SynthesisSectionSpec[] {
   return [];
 }
 
+
+function shapeTerms(shape: QueryShape): string[] {
+  return sectionSpecs(shape).flatMap(spec => spec.terms);
+}
+
+function termAnchors(terms: string[]): string[] {
+  const anchors = new Set<string>();
+  for (const term of terms) {
+    const normalized = norm(term);
+    if (!normalized) continue;
+    if (normalized.length >= 4) anchors.add(normalized);
+    for (const part of normalized.split(' ')) {
+      if (part.length >= 5) anchors.add(part);
+    }
+  }
+  return [...anchors];
+}
+
+function evidenceScore(ev: RecallEvidence, terms: string[]): number {
+  return splitSentences(ev.quote).reduce((score, sentence) => score + sentenceScore(sentence, terms), 0);
+}
+
+function evidenceAnchors(ev: RecallEvidence, anchors: string[]): Set<string> {
+  const q = norm(`${ev.title ?? ''} ${ev.quote}`);
+  const found = new Set<string>();
+  for (const anchor of anchors) {
+    if (anchor && q.includes(anchor)) found.add(anchor);
+  }
+  return found;
+}
+
+function pruneEvidenceForSynthesis(query: string, evidence: RecallEvidence[], maxEvidence: number): RecallEvidence[] {
+  const shape = determineQueryShape(query, evidence);
+  if (shape === 'generic') return evidence.slice(0, maxEvidence);
+
+  const terms = shapeTerms(shape);
+  const anchors = termAnchors(terms);
+  const ranked = evidence
+    .map((ev, index) => ({ ev, index, score: evidenceScore(ev, terms), anchors: evidenceAnchors(ev, anchors) }))
+    .filter(item => item.score > 0 || item.anchors.size > 0)
+    .sort((a, b) => b.score - a.score || b.anchors.size - a.anchors.size || a.index - b.index);
+
+  const kept: typeof ranked = [];
+  const covered = new Set<string>();
+  for (const item of ranked) {
+    if (kept.length >= maxEvidence) break;
+    const unique = [...item.anchors].filter(anchor => !covered.has(anchor));
+    if (kept.length > 0 && unique.length === 0) continue;
+    kept.push(item);
+    for (const anchor of item.anchors) covered.add(anchor);
+  }
+
+  if (!kept.length) return evidence.slice(0, maxEvidence);
+
+  const selectedEvidence = new Set<number>();
+  const usedSentences = new Set<string>();
+  const keptInOriginalOrder = kept.sort((a, b) => a.index - b.index);
+  for (const spec of sectionSpecs(shape)) {
+    const candidates: Array<{ keptIndex: number; score: number; sentenceIndex: number; text: string }> = [];
+    for (let keptIndex = 0; keptIndex < keptInOriginalOrder.length; keptIndex++) {
+      const sentences = splitSentences(keptInOriginalOrder[keptIndex].ev.quote);
+      for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
+        const score = sentenceScore(sentences[sentenceIndex], spec.terms);
+        if (score > 0) candidates.push({ keptIndex, score, sentenceIndex, text: sentences[sentenceIndex] });
+      }
+    }
+    candidates.sort((a, b) => b.score - a.score || a.keptIndex - b.keptIndex || a.sentenceIndex - b.sentenceIndex);
+    let selectedForSection = 0;
+    for (const candidate of candidates) {
+      if (selectedForSection >= (spec.maxSentences ?? 2)) break;
+      const key = sentenceKey(candidate.text);
+      if (usedSentences.has(key)) continue;
+      usedSentences.add(key);
+      selectedEvidence.add(candidate.keptIndex);
+      selectedForSection++;
+    }
+  }
+
+  const contributing = keptInOriginalOrder.filter((_item, keptIndex) => selectedEvidence.has(keptIndex));
+  return (contributing.length ? contributing : keptInOriginalOrder).map(item => item.ev);
+}
+
 function fallbackSentence(ev: RecallEvidence, citation: AnswerCitation, maxQuoteChars: number): CitationSentence {
   return { text: truncateAtBoundary(compactWhitespace(ev.quote), maxQuoteChars), citation };
 }
@@ -226,7 +309,7 @@ function citedLine(sentence: CitationSentence): string {
 function buildStructuredAnswer(query: string, evidence: RecallEvidence[], citations: AnswerCitation[], maxQuoteChars: number): string {
   const shape = determineQueryShape(query, evidence);
   const used = new Set<string>();
-  const lines: string[] = ['Deterministic evidence-backed draft (structured synthesis):'];
+  const lines: string[] = ['Deterministic evidence-backed draft (memory answer):'];
 
   if (shape !== 'generic') {
     for (const spec of sectionSpecs(shape)) {
@@ -281,7 +364,8 @@ export function synthesizeAnswerFromRecall(recall: RecallResult, opts: AnswerSyn
     };
   }
 
-  const evidence = exactEvidence.slice(0, maxEvidence);
+  const evidence = pruneEvidenceForSynthesis(recall.query, exactEvidence, maxEvidence);
+  if (evidence.length < Math.min(exactEvidence.length, maxEvidence)) warnings.push('low-relevance or duplicate source windows were excluded from answer synthesis');
   const citations = evidence.map(citationFor);
 
   return {

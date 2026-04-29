@@ -70,7 +70,8 @@ Praeon tried to influence intelligence after it was created, not where intellige
     slug: 'sources/chatgpt/full-export-all/2025-12-18-reason-for-disappointment-6943af56',
     source_id: 'default',
     title: 'Reason for Disappointment',
-    compiled_truth: `Praeon (AI rails / compliance / provenance): explored → rejected due to policy theatre and lack of real leverage.`,
+    compiled_truth: `Praeon (AI rails / compliance / provenance): explored → rejected due to policy theatre and lack of real leverage.
+I value sovereignty, compounding leverage, correctness over comfort, and family durability as a hard constraint.`,
     timeline: '',
     type: 'source',
   }],
@@ -148,6 +149,7 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('Agent Commerce Clearinghouse (ACC)');
     expect(answer.answer).toContain('zero network lock-in');
     expect(answer.answer).toContain('policy theatre and lack of real leverage');
+    expect(answer.answer).not.toContain('family durability');
   });
 
   test('recalls and synthesizes Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
