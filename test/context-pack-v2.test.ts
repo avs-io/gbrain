@@ -109,4 +109,52 @@ describe('context pack v2', () => {
     const missOut = JSON.parse(miss.stdout || '{}');
     expect(missOut.status).toBe('abstain');
   });
+
+  test('CLI compact human mode surfaces evidence, stale/sensitivity notes, abstain reasons, and redacts local paths', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-context-pack-v2-'));
+    const home = join(dir, 'home');
+    const ledger = join(home, '.gbrain', 'claim-ledger.jsonl');
+    mkdirSync(join(home, '.gbrain'), { recursive: true });
+
+    const localSource = join(dir, 'raw', 'secret-source.jsonl');
+    const localSpan = `gbs1:${localSource}:sources/test/pr13#compiled_truth:L2-L3`;
+    const sensitiveStale = buildClaimLedgerRecord({
+      claim: 'PR13 compact context pack should not reveal local source paths.',
+      type: 'project_status',
+      status: 'stale',
+      namespace: 'personal',
+      privacy: 'private',
+      sensitivity: 'high',
+      confidence: 0.7,
+      observedAt: '2026-04-29T07:00:00.000Z',
+      evidence: [evidenceRefFromSpan(localSpan, 'PR13 compact output cites evidence without raw paths.')],
+      now,
+    });
+    writeFileSync(ledger, JSON.stringify(sensitiveStale) + '\n', 'utf-8');
+
+    const hit = spawnSync(
+      process.execPath,
+      ['run', 'src/cli.ts', 'memory', 'context-pack', '--mode', 'project', '--query', 'PR13 compact context', '--allowed-namespaces', 'personal', '--max-privacy', 'private', '--max-sensitivity', 'high', '--compact'],
+      { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: home }, encoding: 'utf-8' },
+    );
+    expect(hit.status).toBe(0);
+    expect(hit.stdout).toContain('evidence_index:');
+    expect(hit.stdout).toContain('stale_warnings:');
+    expect(hit.stdout).toContain('sensitivity_notes:');
+    expect(hit.stdout).toContain('secret-source.jsonl');
+    expect(hit.stdout).not.toContain(localSource);
+    expect(hit.stdout).not.toContain(dir);
+
+    const miss = spawnSync(
+      process.execPath,
+      ['run', 'src/cli.ts', 'memory', 'context-pack', '--mode', 'project', '--query', 'PR13 compact context', '--allowed-namespaces', 'world', '--compact'],
+      { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: home }, encoding: 'utf-8' },
+    );
+    expect(miss.status).toBe(1);
+    expect(miss.stdout).toContain('ABSTAIN context-pack v2');
+    expect(miss.stdout).toContain('abstain_reasons:');
+    expect(miss.stdout).toContain('policy excluded all matching records');
+    expect(miss.stdout).not.toContain(dir);
+  });
+
 });

@@ -437,6 +437,7 @@ export async function runMemory(args: string[]): Promise<void> {
       limit: Number(flagValue(subArgs, '--limit') || 8),
     });
     if (hasFlag(subArgs, '--json')) printJson({ ok: pack.status === 'hit', action: 'context-pack', ...pack });
+    else if (hasFlag(subArgs, '--compact')) printContextPackCompactHuman(pack);
     else printContextPackHuman(pack);
     if (pack.status !== 'hit') process.exit(1);
     return;
@@ -709,10 +710,78 @@ function printContextPackHuman(pack: ReturnType<typeof loadContextPackV2>): void
   for (const item of pack.items) {
     console.log(`- ${item.id} [${item.type}, ${item.namespace}, ${item.privacy}, ${item.sensitivity}] confidence=${item.confidence}`);
     console.log(`  ${item.claim}`);
-    if (item.evidence_span_ids.length) console.log(`  evidence: ${item.evidence_span_ids.join(', ')}`);
+    if (item.evidence_span_ids.length) console.log(`  evidence: ${item.evidence_span_ids.map(redactLocalPaths).join(', ')}`);
   }
-  if (pack.evidence_index.length) console.log(`evidence_index: ${pack.evidence_index.map(e => e.span_id).join(', ')}`);
-  if (pack.warnings.length) console.log(`warnings: ${pack.warnings.join('; ')}`);
+  if (pack.evidence_index.length) console.log(`evidence_index: ${pack.evidence_index.map(e => redactLocalPaths(e.span_id)).join(', ')}`);
+  if (pack.warnings.length) console.log(`warnings: ${pack.warnings.map(redactLocalPaths).join('; ')}`);
+}
+
+function redactLocalPaths(value: unknown): string {
+  const home = process.env.HOME || '';
+  let text = String(value || '');
+  if (home) text = text.replaceAll(home, '$HOME');
+  return text
+    .replace(/\\/g, '/')
+    .replace(/(?:\$HOME|\/Users\/[^\s:#;,]+|\/private\/var\/[^\s:#;,]+|\/var\/folders\/[^\s:#;,]+|\/tmp\/[^\s:#;,]+)([^\s:#;,]*)/g, match => {
+      const cleaned = match.replace(/^\$HOME/, home || '$HOME');
+      return safeSourceLabel(cleaned);
+    });
+}
+
+function contextPackEvidenceOrdinal(pack: ReturnType<typeof loadContextPackV2>): Map<string, string> {
+  return new Map(pack.evidence_index.map((ev, index) => [ev.span_id, `E${index + 1}`]));
+}
+
+function contextPackAbstainReasons(pack: ReturnType<typeof loadContextPackV2>): string[] {
+  const explicit = pack.warnings.filter(w => /abstain/i.test(w)).map(redactLocalPaths);
+  if (explicit.length) return explicit;
+  if (pack.status !== 'abstain') return [];
+  const reasons: string[] = [];
+  if (pack.excluded.policy > 0) reasons.push(`${pack.excluded.policy} matching record(s) blocked by namespace/privacy/sensitivity policy`);
+  if (pack.excluded.mode > 0) reasons.push(`${pack.excluded.mode} record(s) did not match mode=${pack.request.mode}`);
+  if (pack.excluded.query > 0) reasons.push(`${pack.excluded.query} record(s) did not match topic`);
+  if (!reasons.length) reasons.push('no review-only claim records available');
+  return reasons;
+}
+
+function printContextPackCompactHuman(pack: ReturnType<typeof loadContextPackV2>): void {
+  const topic = pack.request.topic || '(no topic)';
+  const evidenceOrdinal = contextPackEvidenceOrdinal(pack);
+  const staleWarnings = pack.warnings.filter(w => /stale|superseded|contradicted/i.test(w)).map(redactLocalPaths);
+  const sensitivityNotes = pack.warnings.filter(w => /privacy|sensitivity|review/i.test(w) && !/abstain/i.test(w)).map(redactLocalPaths);
+  const otherWarnings = pack.warnings.filter(w => !staleWarnings.includes(redactLocalPaths(w)) && !sensitivityNotes.includes(redactLocalPaths(w)) && !/abstain/i.test(w)).map(redactLocalPaths);
+
+  console.log(`${pack.status.toUpperCase()} context-pack v2 [${pack.request.mode}] topic="${redactLocalPaths(topic)}"`);
+  console.log(`policy: namespaces=${pack.request.allowed_namespaces.join(',')} max_privacy=${pack.request.max_privacy} max_sensitivity=${pack.request.max_sensitivity}`);
+  console.log(`counts: items=${pack.items.length} evidence=${pack.evidence_index.length} excluded_policy=${pack.excluded.policy} excluded_mode=${pack.excluded.mode} excluded_query=${pack.excluded.query}`);
+
+  if (pack.status === 'abstain') {
+    console.log('abstain_reasons:');
+    for (const reason of contextPackAbstainReasons(pack)) console.log(`- ${reason}`);
+  }
+
+  if (pack.items.length) {
+    console.log('items:');
+    for (const item of pack.items) {
+      const evidence = item.evidence_span_ids.map(id => evidenceOrdinal.get(id) || redactLocalPaths(id)).join(', ') || 'none';
+      console.log(`- ${item.id} [${item.type}; ${item.status}; ${item.namespace}/${item.privacy}/${item.sensitivity}; confidence=${item.confidence}; evidence=${evidence}]`);
+      console.log(`  ${redactLocalPaths(item.claim)}`);
+    }
+  }
+
+  if (pack.evidence_index.length) {
+    console.log('evidence_index:');
+    for (const ev of pack.evidence_index) {
+      const label = evidenceOrdinal.get(ev.span_id) || 'E?';
+      const source = redactLocalPaths(ev.source_id || ev.slug || ev.section || ev.span_id);
+      const lines = ev.start_line && ev.end_line ? ` L${ev.start_line}-L${ev.end_line}` : '';
+      console.log(`- ${label}: ${redactLocalPaths(ev.span_id)} source=${source}${lines} claims=${ev.claim_ids.join(',')}`);
+    }
+  }
+
+  if (staleWarnings.length) { console.log('stale_warnings:'); for (const w of staleWarnings) console.log(`- ${w}`); }
+  if (sensitivityNotes.length) { console.log('sensitivity_notes:'); for (const w of sensitivityNotes) console.log(`- ${w}`); }
+  if (otherWarnings.length) { console.log('warnings:'); for (const w of otherWarnings) console.log(`- ${w}`); }
 }
 
 function printSurfacingPacketHuman(packet: any): void {
@@ -738,7 +807,7 @@ function printRouteHuman(result: ReturnType<typeof routeTypedMemory>): void {
 function printHelp(): void {
   console.log(`gbrain memory route --query "..." [--context "..."] [--context-file path] [--limit 8] [--include-high] [--json]
 gbrain memory surface --query "..." [--context "..."] [--context-file path] [--limit 8] [--enqueue] [--dry-run|--yes] [--json]
-gbrain memory context-pack --mode <daily|meeting|decision|project> --query "..." [--allowed-namespaces world,ventures] [--max-privacy internal] [--max-sensitivity medium] [--limit 8] [--json]
+gbrain memory context-pack --mode <daily|meeting|decision|project> --query "..." [--allowed-namespaces world,ventures] [--max-privacy internal] [--max-sensitivity medium] [--limit 8] [--compact] [--json]
 gbrain memory scout validate --recipe <recipe.json> [--observations <observations.json>] [--json]
 gbrain memory scout dry-run --recipe <recipe.json> --observations <observations.json> [--output <report.json>] [--json]
 gbrain memory radar score --input <scout-dry-run-report.json> [--output <radar-report.json>] [--json]
