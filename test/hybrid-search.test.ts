@@ -13,6 +13,8 @@ function makeResult(overrides: Partial<SearchResult> & { chunk_text: string; slu
     title: 'Test Page',
     type: 'concept',
     chunk_source: 'compiled_truth',
+    chunk_id: 1,
+    chunk_index: 0,
     score: 1.0,
     stale: false,
     ...overrides,
