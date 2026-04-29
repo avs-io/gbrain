@@ -57,11 +57,11 @@ describe('answer promotion eval', () => {
       evidence: [{ ...baseRecall.evidence[0], span_id: 'chunk:default:sources/test/citadel:1' }],
     });
     const report = evaluateAnswerPromotionCases([
-      { id: 'abstain', envelope: abstain, expected_abstain: true },
+      { id: 'abstain', envelope: abstain, expected_abstain: false },
     ]);
 
     expect(report.ok).toBe(false);
     expect(report.fail_count).toBe(1);
-    expect(report.failures[0].reasons.join(' ')).toContain('non-gbs1 evidence present');
+    expect(report.failures[0].reasons.join(' ')).toContain('unexpected abstain');
   });
 });

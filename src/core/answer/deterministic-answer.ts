@@ -1,5 +1,6 @@
 import type { RecallResult } from '../evidence/recall.ts';
 import { normalizeRecallEvidence, isExactEvidenceWindow } from './evidence-normalize.ts';
+import { pruneEvidenceForSynthesis } from './evidence-prune.ts';
 import { validateClaimCitations } from './citation-validate.ts';
 import { ANSWER_ENVELOPE_SCHEMA, type AnswerEnvelope } from './types.ts';
 import { buildQueryFrame } from './query-frame.ts';
@@ -11,7 +12,9 @@ import { renderDeterministicAnswer } from './renderer.ts';
 
 export interface DeterministicAnswerOptions {
   maxEvidence?: number;
+  maxPerSourceEvidence?: number;
   maxQuoteChars?: number;
+  pruneEvidence?: boolean;
 }
 
 const DEFAULT_MAX_EVIDENCE = 4;
@@ -24,11 +27,14 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
   const queryFrame = buildQueryFrame(recall.query);
   const shape = selectAnswerShape(queryFrame);
   const exactEvidence = normalized.filter(isExactEvidenceWindow);
-  const evidence = exactEvidence.slice(0, maxEvidence);
-  const warnings = [...(recall.warnings ?? [])];
+  const pruneResult = options.pruneEvidence === false
+    ? { evidence: exactEvidence.slice(0, maxEvidence), warnings: [], pruned: false, stats: { input: exactEvidence.length, kept: Math.min(exactEvidence.length, maxEvidence), removed: Math.max(0, exactEvidence.length - maxEvidence), removedNonExact: 0, removedDuplicateSpan: 0, removedDuplicateQuoteHash: 0, removedDuplicateQuoteText: 0, removedPerSource: 0 } }
+    : pruneEvidenceForSynthesis(exactEvidence, { maxEvidence, maxPerSource: options.maxPerSourceEvidence });
+  const evidence = pruneResult.evidence;
+  const warnings = [...(recall.warnings ?? []), ...pruneResult.warnings];
 
   if (exactEvidence.length !== normalized.length) warnings.push('non-gbs1 or empty evidence was excluded from deterministic-v2 answer synthesis');
-  if (exactEvidence.length > evidence.length) warnings.push('exact evidence was truncated by max_evidence');
+  if (pruneResult.pruned) warnings.push('evidence pruning changed the deterministic-v2 synthesis input');
 
   if (evidence.length === 0) {
     if (!warnings.some(w => /abstain/i.test(w))) warnings.push('no exact gbs1 evidence supplied to deterministic-v2 answer synthesis; abstaining');
@@ -43,7 +49,7 @@ export function buildDeterministicAnswerEnvelope(recall: RecallResult, options: 
       sections: [],
       claims: [],
       citations: [],
-      evidence: normalized,
+      evidence,
       missingSlots: ['exact_gbs1_evidence'],
       conflicts: [],
       warnings,

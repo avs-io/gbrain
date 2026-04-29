@@ -37,7 +37,7 @@ describe('deterministic-v2 golden answer behavior', () => {
     expect(one.answer).toContain('Agent Commerce Clearinghouse');
     expect(one.answer).toContain('low network leverage');
     expect(one.answer).not.toContain('Green tea');
-    expect(two.claims.map(claim => claim.text)).toEqual(one.claims.map(claim => claim.text));
+    expect(two.answer).toBe(one.answer);
   });
 
   test('Chief-style protocol fixture compiles stack, change and measurement without production hardcoding', () => {
