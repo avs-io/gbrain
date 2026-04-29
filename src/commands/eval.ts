@@ -19,8 +19,18 @@ import {
   type EvalReport,
   type QueryResult,
 } from '../core/search/eval.ts';
+import { buildDeterministicAnswerEnvelope } from '../core/answer/index.ts';
+import { evaluateAnswerPromotionCases, type AnswerPromotionCase } from '../core/answer/promotion-eval.ts';
+import type { RecallResult } from '../core/evidence/recall.ts';
 
-export async function runEvalCommand(engine: BrainEngine, args: string[]): Promise<void> {
+export async function runEvalCommand(engine: BrainEngine | null, args: string[]): Promise<void> {
+  if (args[0] === 'answer-v2' || args[0] === 'answer') {
+    await runAnswerV2EvalCommand(args.slice(1));
+    return;
+  }
+
+  if (!engine) throw new Error('gbrain eval --qrels requires a brain engine; use `gbrain eval answer-v2` for fixture-only answer promotion evals');
+
   const opts = parseArgs(args);
 
   if (opts.help) {
@@ -73,6 +83,87 @@ export async function runEvalCommand(engine: BrainEngine, args: string[]): Promi
     });
     progress.finish();
     printSingleTable(report);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// Answer v2 promotion eval subcommand
+// ─────────────────────────────────────────────────────────────────
+
+interface AnswerV2EvalFlags {
+  casesPath?: string;
+  synthesis?: string;
+  json: boolean;
+}
+
+function needAnswerV2Value(args: string[], index: number, flag: string): string {
+  const value = args[index];
+  if (!value || value.startsWith('--')) throw new Error(`Missing value for ${flag}`);
+  return value;
+}
+
+function parseAnswerV2EvalArgs(args: string[]): AnswerV2EvalFlags {
+  const flags: AnswerV2EvalFlags = { json: false };
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === '--json') flags.json = true;
+    else if (arg === '--cases') flags.casesPath = needAnswerV2Value(args, ++i, arg);
+    else if (arg.startsWith('--cases=')) flags.casesPath = arg.slice('--cases='.length);
+    else if (arg === '--synthesis') flags.synthesis = needAnswerV2Value(args, ++i, arg);
+    else if (arg.startsWith('--synthesis=')) flags.synthesis = arg.slice('--synthesis='.length);
+    else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
+  }
+  return flags;
+}
+
+function parseAnswerV2JsonLines(raw: string): unknown[] {
+  return raw.split(/\r?\n/).map(line => line.trim()).filter(Boolean).map(line => JSON.parse(line));
+}
+
+function loadAnswerV2Cases(path: string): unknown[] {
+  const raw = readFileSync(path, 'utf8');
+  if (path.endsWith('.jsonl')) return parseAnswerV2JsonLines(raw);
+  const parsed = JSON.parse(raw);
+  return Array.isArray(parsed) ? parsed : [parsed];
+}
+
+function toAnswerPromotionCase(item: any): AnswerPromotionCase {
+  if (item?.envelope?.schema === 'gbrain.answer_envelope.v2') {
+    return {
+      id: String(item.id ?? item.case_id ?? item.envelope.query ?? 'case-1'),
+      expected_abstain: item.expected_abstain,
+      max_length: item.max_length,
+      required_terms: item.required_terms,
+      envelope: item.envelope,
+    };
+  }
+  if (item?.schema === 'gbrain.answer_envelope.v2') return { id: String(item.id ?? item.query ?? 'case-1'), envelope: item };
+  if (item?.query && Array.isArray(item.evidence)) {
+    const recall = item as RecallResult;
+    return {
+      id: String(item.id ?? item.query ?? 'case-1'),
+      expected_abstain: item.expected_abstain,
+      max_length: item.max_length,
+      required_terms: item.required_terms,
+      envelope: buildDeterministicAnswerEnvelope(recall, { maxEvidence: item.maxEvidence, maxQuoteChars: item.maxQuoteChars }),
+    };
+  }
+  throw new Error('Invalid answer-v2 case: expected envelope, recall payload, or case wrapper');
+}
+
+async function runAnswerV2EvalCommand(args: string[]): Promise<void> {
+  const flags = parseAnswerV2EvalArgs(args);
+  if (flags.synthesis && flags.synthesis !== 'deterministic-v2') throw new Error(`Unsupported synthesis: ${flags.synthesis}`);
+  if (!flags.casesPath) throw new Error('Usage: gbrain eval answer-v2 --cases <jsonl|json> --synthesis deterministic-v2 [--json]');
+  const report = evaluateAnswerPromotionCases(loadAnswerV2Cases(flags.casesPath).map(toAnswerPromotionCase));
+  if (flags.json) console.log(JSON.stringify(report, null, 2));
+  else {
+    console.log(`schema: ${report.schema}`);
+    console.log(`ok: ${report.ok}`);
+    console.log(`pass_count: ${report.pass_count}`);
+    console.log(`fail_count: ${report.fail_count}`);
+    console.log(`recommendation: ${report.recommendation}`);
+    for (const failure of report.failures) console.log(`- ${failure.case_id}: ${failure.reasons.join('; ')}`);
   }
 }
 

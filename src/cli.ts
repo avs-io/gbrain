@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'eval', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'radar', 'personal']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'radar', 'personal']);
 
 async function main() {
   // Parse global flags (--quiet / --progress-json / --progress-interval)
@@ -61,6 +61,14 @@ async function main() {
       printOpHelp(op);
       return;
     }
+  }
+
+  // Answer-v2 promotion eval is fixture-only and does not need a database connection.
+  // Legacy `gbrain eval --qrels ...` still goes through the engine-backed path below.
+  if (command === 'eval' && (subArgs[0] === 'answer-v2' || subArgs[0] === 'answer')) {
+    const { runEvalCommand } = await import('./commands/eval.ts');
+    await runEvalCommand(null, subArgs);
+    return;
   }
 
   // CLI-only commands
@@ -355,6 +363,11 @@ async function handleCliOnly(command: string, args: string[]) {
   if (command === 'ai') {
     const { runAiCommand } = await import('./commands/ai.ts');
     await runAiCommand(null, args);
+    return;
+  }
+  if (command === 'eval') {
+    const { runEvalCommand } = await import('./commands/eval.ts');
+    await runEvalCommand(null, args);
     return;
   }
   if (command === 'radar') {

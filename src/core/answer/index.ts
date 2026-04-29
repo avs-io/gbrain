@@ -9,3 +9,4 @@ export * from './evidence-classify.ts';
 export * from './signal-cluster.ts';
 export * from './claim-compiler.ts';
 export * from './renderer.ts';
+export * from './promotion-eval.ts';
