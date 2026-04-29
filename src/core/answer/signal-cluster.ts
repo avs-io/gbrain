@@ -44,6 +44,10 @@ function dedupe(signals: EvidenceSignal[]): EvidenceSignal[] {
   return out;
 }
 
+export function signalFingerprint(signal: EvidenceSignal): string {
+  return normalizeText(signal.text);
+}
+
 function confidenceRank(signal: EvidenceSignal): number {
   return signal.confidence === 'high' ? 0 : signal.confidence === 'medium' ? 1 : 2;
 }

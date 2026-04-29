@@ -15,6 +15,7 @@ type AnswerQualityEvalCase = {
   maxQuoteChars: number;
   required: string[];
   forbidden: Array<string | RegExp>;
+  minStatus: 'partial' | 'hit';
 };
 
 function evidence(overrides: Partial<RecallEvidence> & Pick<RecallEvidence, 'slug' | 'title' | 'quote' | 'start_line' | 'end_line'>): RecallEvidence {
@@ -66,6 +67,7 @@ const cases: AnswerQualityEvalCase[] = [
     name: 'Archana/Rukam relationship and high-friction incidents',
     maxEvidence: 8,
     maxQuoteChars: 220,
+    minStatus: 'hit',
     recall: {
       query: 'What was my relationship with Archana like and what high friction incidents existed?',
       status: 'hit',
@@ -111,6 +113,7 @@ Claim: Workload Tracking: User maintains a detailed log of extra weekend work in
     name: 'ACC before MWAL and why adjacent rails were not the base rail',
     maxEvidence: 9,
     maxQuoteChars: 240,
+    minStatus: 'partial',
     recall: {
       query: 'What was the idea before MWAL and why was MWAL not pursued?',
       status: 'hit',
@@ -160,6 +163,7 @@ I value sovereignty, compounding leverage, correctness over comfort, and family 
     name: 'Anu pregnancy supplement stack and ferritin/ferrous ascorbate context',
     maxEvidence: 6,
     maxQuoteChars: 260,
+    minStatus: 'hit',
     recall: {
       query: 'What supplements was Anu using during pregnancy and when did we shift to ferrous ascorbate? What was ferritin?',
       status: 'hit',
@@ -203,7 +207,8 @@ describe('Chief validation answer-quality eval harness', () => {
         maxQuoteChars: evalCase.maxQuoteChars,
       }) as { status: string; answer: string; citations: Array<{ span_id: string }>; evidence: RecallEvidence[]; bounds: { deterministic: boolean; abstain_if_no_exact_span: boolean } };
 
-      expect(payload.status).toBe('hit');
+      expect(['partial', 'hit']).toContain(payload.status);
+      if (evalCase.minStatus === 'hit') expect(payload.status).toBe('hit');
       expect(payload.bounds).toMatchObject({ deterministic: true, abstain_if_no_exact_span: true });
       expect(payload.answer).toContain('Evidence spans:');
       expect(payload.citations.length).toBeGreaterThan(0);
@@ -217,6 +222,8 @@ describe('Chief validation answer-quality eval harness', () => {
         if (typeof forbidden === 'string') expect(payload.answer).not.toContain(forbidden);
         else expect(payload.answer).not.toMatch(forbidden);
       }
+      const lines = payload.answer.split('\n').filter((line: string) => line.trim().startsWith('- '));
+      expect(new Set(lines.map((line: string) => line.toLowerCase())).size).toBe(lines.length);
     });
   }
 

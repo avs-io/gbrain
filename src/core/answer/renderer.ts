@@ -31,6 +31,18 @@ function buildCitationIndex(claims: ClaimAtom[], evidence: EvidenceWindow[]): Ar
   return citations;
 }
 
+function dedupeRenderedLines(lines: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('- ') && seen.has(trimmed.toLowerCase())) continue;
+    if (trimmed.startsWith('- ')) seen.add(trimmed.toLowerCase());
+    out.push(line);
+  }
+  return out;
+}
+
 export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSignalCluster[], shape: AnswerShapeDef, evidence: EvidenceWindow[], missingSlots: string[]): RenderedAnswer {
   const sections: AnswerSection[] = [];
   const lines: string[] = [`${shape.title}:`];
@@ -62,5 +74,5 @@ export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSig
     lines.push('', `Missing slots: ${missingSlots.join(', ')}`);
   }
 
-  return { answer: lines.join('\n'), sections, citations: buildCitationIndex(claims, evidence) };
+  return { answer: dedupeRenderedLines(lines).join('\n'), sections, citations: buildCitationIndex(claims, evidence) };
 }

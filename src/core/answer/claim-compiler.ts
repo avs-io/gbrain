@@ -1,7 +1,7 @@
 import type { CitationRef, ClaimAtom, EvidenceWindow } from './types.ts';
 import type { QueryFrame } from './synthesis-dsl.ts';
 import type { EvidenceSignal } from './evidence-classify.ts';
-import { highOrMediumSignals, type SlotSignalCluster } from './signal-cluster.ts';
+import { highOrMediumSignals, signalFingerprint, type SlotSignalCluster } from './signal-cluster.ts';
 
 export interface CompiledClaims {
   claims: ClaimAtom[];
@@ -43,12 +43,41 @@ function requestedRequiredSlotIds(frame: QueryFrame, clusters: SlotSignalCluster
     .map(cluster => cluster.slotId));
 }
 
+function materiallyDifferent(a: string, b: string): boolean {
+  if (a === b) return false;
+  const shorter = a.length <= b.length ? a : b;
+  const longer = a.length > b.length ? a : b;
+  if (shorter.length < 18) return true;
+  if (!longer.includes(shorter)) return true;
+  return Math.abs(longer.length - shorter.length) > Math.max(18, Math.floor(shorter.length * 0.35));
+}
+
+function filterSlotDuplicates(slotSignals: EvidenceSignal[], seen: Map<string, string>): EvidenceSignal[] {
+  const out: EvidenceSignal[] = [];
+  for (const signal of slotSignals) {
+    const fingerprint = signalFingerprint(signal);
+    let keep = true;
+    for (const [seenFingerprint, seenSlot] of seen.entries()) {
+      if (seenSlot === signal.evidenceId) continue;
+      if (fingerprint === seenFingerprint || !materiallyDifferent(fingerprint, seenFingerprint)) {
+        keep = false;
+        break;
+      }
+    }
+    if (!keep) continue;
+    seen.set(fingerprint, signal.evidenceId);
+    out.push(signal);
+  }
+  return out;
+}
+
 export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceWindow[], frame: QueryFrame, options: { maxQuoteChars?: number } = {}): CompiledClaims {
   const maxQuoteChars = options.maxQuoteChars ?? 420;
   const evidenceById = new Map(evidence.map(ev => [ev.id, ev]));
   const claims: ClaimAtom[] = [];
   const missingSlots: string[] = [];
   const wanted = requestedRequiredSlotIds(frame, clusters);
+  const seenFingerprints = new Map<string, string>();
 
   for (const cluster of clusters) {
     const strong = highOrMediumSignals(cluster);
@@ -67,7 +96,23 @@ export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceW
     }
     if (strong.length === 0) continue;
 
-    const selected = cluster.slotId === 'stack' ? strong.slice(0, 3) : strong.slice(0, 2);
+    const selected = filterSlotDuplicates(
+      cluster.slotId === 'stack' ? strong.slice(0, 3) : strong.slice(0, 2),
+      seenFingerprints,
+    );
+    if (wanted.has(cluster.slotId) && selected.length === 0) {
+      missingSlots.push(cluster.slotId);
+      claims.push({
+        id: `claim_${claims.length + 1}`,
+        kind: 'absence_notice',
+        text: `No non-duplicate source-backed evidence was found for ${cluster.title}.`,
+        factual: false,
+        citations: [],
+        slotId: cluster.slotId,
+        supportSignalIds: [],
+      });
+      continue;
+    }
     const citations = selected.map(signal => citationFor(signal, evidenceById));
     const text = cluster.slotId === 'stack'
       ? compactListText(selected, maxQuoteChars)
