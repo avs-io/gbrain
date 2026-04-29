@@ -373,6 +373,21 @@ function parseSensitivity(value: string): GBrainSensitivity {
   process.exit(1);
 }
 
+function parsePositiveIntFlag(args: string[], name: string, fallback: number): number {
+  const raw = flagValue(args, name);
+  if (raw === undefined) return fallback;
+  if (!/^\d+$/.test(raw)) {
+    console.error(`Invalid ${name}. Expected a positive integer.`);
+    process.exit(1);
+  }
+  const parsed = Number(raw);
+  if (!Number.isSafeInteger(parsed) || parsed < 1) {
+    console.error(`Invalid ${name}. Expected a positive integer.`);
+    process.exit(1);
+  }
+  return parsed;
+}
+
 function loadPacketFromArgs(args: string[]): any {
   const packetPath = flagValue(args, '--packet');
   if (!packetPath) {
@@ -434,7 +449,7 @@ export async function runMemory(args: string[]): Promise<void> {
       allowedNamespaces: parseAllowedNamespaces(csvFlag(subArgs, '--allowed-namespaces')),
       maxPrivacy: parsePrivacy(flagValue(subArgs, '--max-privacy') || 'internal'),
       maxSensitivity: parseSensitivity(flagValue(subArgs, '--max-sensitivity') || 'medium'),
-      limit: Number(flagValue(subArgs, '--limit') || 8),
+      limit: parsePositiveIntFlag(subArgs, '--limit', 8),
     });
     if (hasFlag(subArgs, '--json')) printJson({ ok: pack.status === 'hit', action: 'context-pack', ...pack });
     else if (hasFlag(subArgs, '--compact')) printContextPackCompactHuman(pack);

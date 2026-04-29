@@ -266,7 +266,8 @@ export function buildContextPackV2(opts: {
   if (!validMode(opts.mode)) throw new Error('mode must be one of: daily, meeting, decision, project');
   const now = opts.now || new Date();
   const topic = opts.topic || '';
-  const limit = Math.max(1, opts.limit ?? 8);
+  const requestedLimit = opts.limit ?? 8;
+  const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.floor(requestedLimit)) : 8;
   const allowedNamespaces = opts.allowedNamespaces && opts.allowedNamespaces.length > 0 ? opts.allowedNamespaces : [...GBRAIN_NAMESPACES];
   const maxPrivacy = opts.maxPrivacy || 'internal';
   const maxSensitivity = opts.maxSensitivity || 'medium';

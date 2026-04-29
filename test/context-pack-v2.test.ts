@@ -110,6 +110,42 @@ describe('context pack v2', () => {
     expect(missOut.status).toBe('abstain');
   });
 
+  test('falls back to default limit when programmatic callers pass a non-finite limit', () => {
+    const records = [claim({ observedAt: '2026-04-29T07:00:00.000Z' }), claim({ claim: 'PR5 Context Pack v2 also keeps a second supported decision.', observedAt: '2026-04-29T07:01:00.000Z' })];
+    const pack = buildContextPackV2({
+      mode: 'decision',
+      topic: 'PR5 source backed decisions',
+      records,
+      allowedNamespaces: ['world'],
+      maxPrivacy: 'internal',
+      maxSensitivity: 'medium',
+      limit: Number.NaN,
+      now,
+    });
+
+    expect(pack.status).toBe('hit');
+    expect(pack.request.limit).toBe(8);
+    expect(pack.items).toHaveLength(2);
+  });
+
+  test('CLI rejects malformed context-pack limits before producing misleading abstains', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-context-pack-v2-'));
+    const home = join(dir, 'home');
+    const ledger = join(home, '.gbrain', 'claim-ledger.jsonl');
+    mkdirSync(join(home, '.gbrain'), { recursive: true });
+    writeFileSync(ledger, JSON.stringify(claim()) + '\n', 'utf-8');
+
+    const result = spawnSync(
+      process.execPath,
+      ['run', 'src/cli.ts', 'memory', 'context-pack', '--mode', 'decision', '--query', 'PR5 source backed', '--allowed-namespaces', 'world', '--limit', 'banana', '--json'],
+      { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: home }, encoding: 'utf-8' },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe('');
+    expect(result.stderr).toContain('Invalid --limit. Expected a positive integer.');
+  });
+
   test('CLI compact human mode surfaces evidence, stale/sensitivity notes, abstain reasons, and redacts local paths', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-context-pack-v2-'));
     const home = join(dir, 'home');
