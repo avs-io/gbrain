@@ -11,12 +11,12 @@ const questions = [
   {
     id: 'archana_rukam',
     question: 'What was my relationship with Archana like and what high friction incidents existed?',
-    expected: ['Rukam', 'formative'],
+    expected: ['Rukam', 'toxic'],
   },
   {
     id: 'acc_mwal',
     question: 'What was the idea before MWAL and why was MWAL not pursued?',
-    expected: ['Agent Commerce Clearinghouse', 'customer'],
+    expected: ['Agent Commerce Clearinghouse', 'zero network lock-in'],
   },
   {
     id: 'anu_pregnancy',

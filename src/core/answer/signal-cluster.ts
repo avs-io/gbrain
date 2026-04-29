@@ -18,7 +18,7 @@ const ROLE_SLOT_MAP: Record<string, EvidenceSignalRole[]> = {
   rationale: ['decision_rationale', 'clinical_or_operational_reasoning', 'uncertainty', 'deprioritization_signal'],
   later_state: ['later_path_signal'],
   timeline: ['later_path_signal', 'protocol_change', 'measurement'],
-  stack: ['protocol_item', 'measurement'],
+  stack: ['protocol_item'],
   change: ['protocol_change', 'later_path_signal'],
   measurement: ['measurement'],
   definition: ['decision_option'],
@@ -59,11 +59,26 @@ function stableSignalSort(a: EvidenceSignal, b: EvidenceSignal): number {
     || a.text.localeCompare(b.text);
 }
 
+function slotSignalScore(signal: EvidenceSignal, slotId: string): number {
+  let score = signal.score;
+  if (slotId === 'stack') {
+    if (signal.role === 'protocol_item') score += 8;
+    if (signal.kind === 'list_item' || signal.kind === 'bullet') score += 3;
+    if (/\b(?:,|;| and | with | plus )\b/i.test(signal.text)) score += 2;
+    if (/\b(?:hb|fgr|ferritin|measurement|level|lab|window|score|count)\b/i.test(signal.text)) score -= 6;
+    if (/\b(?:because|due to|rationale|reason|fetal|maternal|clinical|operational)\b/i.test(signal.text)) score -= 4;
+  }
+  return score;
+}
+
 export function clusterSignalsBySlot(signals: EvidenceSignal[], shape: AnswerShapeDef): SlotSignalCluster[] {
   const usable = signals.filter(signal => signal.role !== 'distractor');
   return shape.slots.map(slot => {
     const roles = ROLE_SLOT_MAP[slot.id] ?? [];
-    const matched = usable.filter(signal => roles.includes(signal.role)).sort(stableSignalSort);
+    const matched = usable.filter(signal => roles.includes(signal.role)).sort((a, b) => {
+      const slotScoreDiff = slotSignalScore(b, slot.id) - slotSignalScore(a, slot.id);
+      return slotScoreDiff || stableSignalSort(a, b);
+    });
     return { slotId: slot.id, title: slot.title, required: slot.required, signals: dedupe(matched) };
   });
 }

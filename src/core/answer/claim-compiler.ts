@@ -72,6 +72,13 @@ function filterSlotDuplicates(slotSignals: EvidenceSignal[], seen: Map<string, s
   return out;
 }
 
+function compactStackSignals(signals: EvidenceSignal[]): EvidenceSignal[] {
+  const protocolSignals = signals.filter(signal => signal.role === 'protocol_item');
+  const listLike = protocolSignals.filter(signal => /[,;]|\b(?: and | with | plus )\b/i.test(signal.text));
+  const preferred = (listLike.length > 0 ? listLike : protocolSignals).filter(signal => !/\b(?:hb|fgr|ferritin|measurement|level|lab|window|score|count|because|due to|rationale|reason|fetal|maternal|clinical|operational)\b/i.test(signal.text));
+  return preferred.length > 0 ? preferred : protocolSignals;
+}
+
 export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceWindow[], frame: QueryFrame, options: { maxQuoteChars?: number } = {}): CompiledClaims {
   const maxQuoteChars = options.maxQuoteChars ?? 420;
   const evidenceById = new Map(evidence.map(ev => [ev.id, ev]));
@@ -97,8 +104,9 @@ export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceW
     }
     if (strong.length === 0) continue;
 
+    const sourceSignals = cluster.slotId === 'stack' ? compactStackSignals(strong) : strong;
     const selected = filterSlotDuplicates(
-      cluster.slotId === 'stack' ? strong.slice(0, 3) : strong.slice(0, 2),
+      cluster.slotId === 'stack' ? sourceSignals.slice(0, 4) : sourceSignals.slice(0, 2),
       seenFingerprints,
     );
     if (wanted.has(cluster.slotId) && selected.length === 0) {

@@ -23,6 +23,16 @@ describe('evidence signal classifier', () => {
     expect(signals.map(s => s.role)).toEqual(expect.arrayContaining(['deprioritization_signal', 'protocol_change', 'measurement']));
   });
 
+  test('splits dense protocol lists from measurement rationale in the same source window', () => {
+    const frame = buildQueryFrame('What supplements were in the stack and what was ferritin?');
+    const signals = classifyEvidenceSignals([
+      ev('dddd', 'Maternal Supplementation Stack: Vitamin C + Quercetin 500mg, NMN 500mg, NAC 600mg, Magnesium Glycinate, Metformin. At 31-32 w with ferritin 19.9 ng/mL and FGR, the job is fetal iron endowment.'),
+    ], frame);
+
+    expect(signals.some(s => s.role === 'protocol_item' && /nmn|nac|magnesium|metformin/i.test(s.text))).toBe(true);
+    expect(signals.some(s => s.role === 'measurement' && /ferritin|fgr|31-32 w/i.test(s.text))).toBe(true);
+  });
+
   test('marks unrelated windows as distractors', () => {
     const frame = buildQueryFrame('Why did Project Atlas change?');
     const signals = classifyEvidenceSignals([ev('cccc', 'Green tea tastes bitter in the morning.')], frame);

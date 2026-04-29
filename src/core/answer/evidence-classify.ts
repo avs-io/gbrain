@@ -61,16 +61,17 @@ function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> 
     const line = compact(raw.replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, ''));
     if (!line) continue;
     const bullet = /^\s*[-*•]/.test(raw);
-    const commaList = line.includes(':') && line.split(',').length >= 4;
-    if (commaList) {
-      out.push({ text: line, kind: 'list_item' });
-      continue;
-    }
     const sentences = line.split(/(?<=[.!?])\s+(?=[A-Z0-9"'“])/).map(compact).filter(Boolean);
+    const kindFor = (text: string): SignalKind => {
+      const commaList = text.includes(':') && text.split(',').length >= 4;
+      if (commaList) return 'list_item';
+      if (/\d/.test(text)) return 'numeric';
+      return bullet ? 'bullet' : 'sentence';
+    };
     if (sentences.length > 1) {
-      for (const sentence of sentences) out.push({ text: sentence, kind: /\d/.test(sentence) ? 'numeric' : bullet ? 'bullet' : 'sentence' });
+      for (const sentence of sentences) out.push({ text: sentence, kind: kindFor(sentence) });
     } else {
-      out.push({ text: line, kind: /\d/.test(line) ? 'numeric' : bullet ? 'bullet' : 'line' });
+      out.push({ text: line, kind: kindFor(line) === 'sentence' ? 'line' : kindFor(line) });
     }
   }
   return out;
@@ -109,12 +110,25 @@ function rolePriority(role: EvidenceSignalRole): number {
   return ROLE_PRIORITY.indexOf(role);
 }
 
+function isStackQuestion(frame: QueryFrame): boolean {
+  return frame.requestedAspects.includes('list_stack') || /\b(?:stack|protocol|supplement|regimen|items?)\b/i.test(frame.normalizedQuery);
+}
+
+function isMeasurementDominant(text: string): boolean {
+  const lowered = text.toLowerCase();
+  const numericHits = (lowered.match(/\b\d+(?:\.\d+)?\b/g) ?? []).length;
+  const measurementHits = (lowered.match(/\b(?:score|metric|measurement|count|hb|fgr|lab|level|window|ng\/ml|mg|g|iu|%|weeks?|w|daily|bid)\b/g) ?? []).length;
+  const protocolHits = (lowered.match(/\b(?:stack|protocol|regimen|supplement|vitamin|metformin|magnesium|protein|creatine|probiotics|iron|bisglycinate|ascorbate)\b/g) ?? []).length;
+  return (numericHits + measurementHits) >= 4 && protocolHits === 0;
+}
+
 function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { role: EvidenceSignalRole; confidence: SignalConfidence; score: number } {
   const rel = relevance(text, terms);
+  const stackQuestion = isStackQuestion(frame);
   if (/\b(?:unrelated|irrelevant|distractor|not relevant)\b/i.test(text)) return { role: 'distractor', confidence: 'low', score: rel };
   if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
-  if (/\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
-  if (/\b(?:score|metric|measurement|count|hb|fgr|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
+  if (stackQuestion && /\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  if (isMeasurementDominant(text) || /\b(?:score|metric|measurement|count|hb|fgr|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
   if (/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|not enough|zero network lock-in|low gravity|lack of real leverage)\b/i.test(text)) return { role: 'deprioritization_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
 
   let bestRole: EvidenceSignalRole | null = null;
