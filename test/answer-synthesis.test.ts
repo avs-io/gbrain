@@ -124,6 +124,42 @@ describe('answer synthesis from recall evidence', () => {
     expect(out.warnings.join(' ')).toContain('low-relevance or duplicate source windows were excluded');
   });
 
+  test('renders dense evidence clusters without semicolon-chain prose', () => {
+    const clusteredRecall: RecallResult = {
+      query: 'What supplements was Anu using during pregnancy?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/pregnancy-stack#compiled_truth:L1-L1',
+          source_id: 'default',
+          slug: 'sources/test/pregnancy-stack',
+          title: 'Pregnancy Stack',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 1,
+          quote: 'Maternal Supplementation Stack (Already Taken Daily): Vitamin C + Quercetin 500mg, Folic acid 5mg, Methylfolate + Methylcobalamin, NMN 500mg, NAC 600mg, Phosphatidylcholine 2g, Vitamin D3 5000 IU + K2, Prenatal Multivitamin, Creatine 5g, Magnesium Glycinate, Metformin.',
+          quote_hash: 'd'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.91,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(clusteredRecall, { maxEvidence: 1, maxQuoteChars: 260 });
+    const stackLine = out.answer.split('\n').find(line => line.includes('Supplement stack captured in source')) ?? '';
+
+    expect(out.status).toBe('hit');
+    expect(stackLine).toContain('NMN 500mg');
+    expect(stackLine).toContain('NAC 600mg');
+    expect(stackLine).toContain('Phosphatidylcholine 2g');
+    expect(stackLine).toContain('Metformin');
+    expect(stackLine).toContain('[S1]');
+    expect(stackLine.split(';').length - 1).toBeLessThanOrEqual(1);
+  });
+
   test('answer CLI accepts recall JSON without needing a brain connection', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-answer-synthesis-'));
     const hitPath = join(dir, 'recall-hit.json');

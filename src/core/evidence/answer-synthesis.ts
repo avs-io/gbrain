@@ -67,7 +67,12 @@ function stripSourceArtifacts(text: string): string {
 }
 
 function cleanSourceLine(line: string): string {
-  return stripSourceArtifacts(line).trim().replace(/^[\s:–—-]+/, '').trim();
+  return stripSourceArtifacts(line)
+    .trim()
+    .replace(/^Claim:\s*/i, '')
+    .replace(/^“([^”]+)”\s*→\s*Agree\.?$/i, '$1')
+    .replace(/^[\s:–—-]+/, '')
+    .trim();
 }
 
 function compactWhitespace(text: string): string {
@@ -352,11 +357,33 @@ function citedLine(sentence: CitationSentence): string {
   return `${sentence.text} ${citationGroup([sentence.citation])}`;
 }
 
+function cleanClusterFragment(text: string): string {
+  return text.replace(/\s+$/g, '').replace(/[.;:,]+$/g, '').trim();
+}
+
+function looksLikeSentence(fragment: string): boolean {
+  return /[.!?][\]\)"'”’]*$/.test(fragment.trim()) || fragment.length >= 110;
+}
+
+function continuationItem(item: string): string {
+  return item.replace(/^(But|Every|In|She|Switching|The|This|You)\b/, match => match.toLowerCase());
+}
+
+function naturalJoin(items: string[], separator: string): string {
+  if (items.length <= 1) return items[0] ?? '';
+  if (items.length === 2) return `${items[0]}, and ${continuationItem(items[1])}`;
+  const tail = items.at(-1) ?? '';
+  return `${items.slice(0, -1).map((item, index) => index === 0 ? item : continuationItem(item)).join(separator)}${separator}and ${continuationItem(tail)}`;
+}
+
 function joinClusterText(sentences: CitationSentence[]): string {
-  return sentences
-    .map(sentence => sentence.text.replace(/\s+$/g, '').replace(/[.;:,]+$/g, ''))
-    .filter(Boolean)
-    .join('; ');
+  const fragments = sentences.map(sentence => cleanClusterFragment(sentence.text)).filter(Boolean);
+  if (fragments.length <= 1) return fragments[0] ?? '';
+
+  // Whole-sentence clusters read better as short prose, not semicolon chains.
+  // Clause clusters (notably supplement-stack lists) read better as comma lists.
+  if (fragments.some(looksLikeSentence)) return `${fragments.join('. ')}.`.replace(/\.\s*\./g, '.');
+  return naturalJoin(fragments, ', ');
 }
 
 function citedCluster(sentences: CitationSentence[]): string {

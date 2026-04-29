@@ -112,6 +112,13 @@ function sectionBody(answer: string, heading: string): string {
   return rest.slice(0, end);
 }
 
+function expectReadableSemicolonDensity(section: string): void {
+  const mainLines = section.split('\n').filter(line => !line.trim().startsWith('- [S'));
+  for (const line of mainLines) {
+    expect(countOccurrences(line, ';')).toBeLessThanOrEqual(1);
+  }
+}
+
 function engine(): BrainEngine {
   return {
     kind: 'postgres',
@@ -143,7 +150,9 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).toContain('10:05 instead of 10');
     expect(answer.answer).toContain('Archana — thank you');
     expect(answer.answer).toContain('gbs1:');
-    expect(sectionBody(answer.answer, 'High-friction Rukam incidents')).not.toMatch(/\[S1\].{0,40}\[S1\]/s);
+    const frictionSection = sectionBody(answer.answer, 'High-friction Rukam incidents');
+    expect(frictionSection).not.toMatch(/\[S1\].{0,40}\[S1\]/s);
+    expectReadableSemicolonDensity(frictionSection);
   });
 
   test('recalls and synthesizes ACC before MWAL and why MWAL/adjacent rails were not pursued as standalone primary', async () => {
@@ -168,7 +177,9 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(answer.answer).not.toContain('> **Build');
     expect(answer.answer).not.toContain('cite');
     expect(answer.answer).not.toContain('family durability');
-    expect(sectionBody(answer.answer, 'Why ACC/MWAL were not enough as the base rail')).not.toMatch(/\[S2\].{0,40}\[S2\]/s);
+    const railSection = sectionBody(answer.answer, 'Why ACC/MWAL were not enough as the base rail');
+    expect(railSection).not.toMatch(/\[S2\].{0,40}\[S2\]/s);
+    expectReadableSemicolonDensity(railSection);
   });
 
   test('recalls and synthesizes Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
@@ -199,5 +210,6 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     const supplementSection = sectionBody(answer.answer, 'Supplement stack captured in source');
     expect(countOccurrences(supplementSection, '[S1]')).toBeLessThanOrEqual(4);
     expect(supplementSection).not.toMatch(/\[S1\].{0,40}\[S1\]/s);
+    expectReadableSemicolonDensity(supplementSection);
   });
 });
