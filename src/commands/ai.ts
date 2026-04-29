@@ -1,8 +1,9 @@
 import { enqueueJob, listJobs, retryJob } from '../core/ai/job-queue.ts';
 import { routeModel } from '../core/ai/model-router.ts';
+import { buildMemoryAtomProposal, enqueueMemoryAtomProposal, listMemoryAtomProposals, proposeMemoryAtomFromSpan } from '../core/ai/memory-atom-proposal.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
 
-function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string } {
+function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[] } {
   let kind: WorkKind | undefined;
   let privacy: PrivacyTier | undefined;
   let json = false;
@@ -13,10 +14,19 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
   let provider: string | undefined;
   let status: string | undefined;
   let id: string | undefined;
+  let dryRun = false;
+  let yes = false;
+  let spanId: string | undefined;
+  let claim: string | undefined;
+  let atomType: string | undefined;
+  let sensitivity: string | undefined;
+  let subjectEntities: string[] | undefined;
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === '--json') json = true;
     else if (a === '--allow-cloud-escalation') allowCloudEscalation = true;
+    else if (a === '--dry-run') dryRun = true;
+    else if (a === '--yes') yes = true;
     else if (a === '--kind') kind = args[++i] as WorkKind;
     else if (a?.startsWith('--kind=')) kind = a.slice(7) as WorkKind;
     else if (a === '--privacy') privacy = args[++i] as PrivacyTier;
@@ -31,9 +41,19 @@ function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: 
     else if (a?.startsWith('--provider=')) provider = a.slice(11);
     else if (a === '--status') status = args[++i];
     else if (a?.startsWith('--status=')) status = a.slice(9);
+    else if (a === '--from-span') spanId = args[++i];
+    else if (a?.startsWith('--from-span=')) spanId = a.slice(12);
+    else if (a === '--claim') claim = args[++i];
+    else if (a?.startsWith('--claim=')) claim = a.slice(8);
+    else if (a === '--atom-type') atomType = args[++i];
+    else if (a?.startsWith('--atom-type=')) atomType = a.slice(12);
+    else if (a === '--sensitivity') sensitivity = args[++i];
+    else if (a?.startsWith('--sensitivity=')) sensitivity = a.slice(14);
+    else if (a === '--subject-entity') (subjectEntities ||= []).push(args[++i]);
+    else if (a?.startsWith('--subject-entity=')) (subjectEntities ||= []).push(a.slice(17));
     else if (a && !a.startsWith('--') && !id) id = a;
   }
-  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id };
+  return { kind, privacy, json, allowCloudEscalation, queuePath, namespace, inputRef, provider, status, id, dryRun, yes, spanId, claim, atomType, sensitivity, subjectEntities };
 }
 
 export async function runAiCommand(_engine: unknown, args: string[]): Promise<void> {
@@ -45,6 +65,31 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
     if (flags.json) console.log(JSON.stringify(route, null, 2));
     else console.log(`${route.preferred_provider} ${route.fallback_providers.join(',')}`);
     return;
+  }
+  if (sub === 'memory-atoms') {
+    const [action, ...atomArgs] = rest;
+    const flags = parse(atomArgs);
+    if (action === 'propose') {
+      if (!flags.spanId || !flags.claim || !flags.atomType || !flags.namespace || !flags.sensitivity) throw new Error('Usage: gbrain ai memory-atoms propose --from-span <gbs1> --claim <text> --atom-type <type> --namespace <ns> --sensitivity <P0|P1|P2|P3> [--dry-run|--yes] [--json]');
+      const proposalResult = proposeMemoryAtomFromSpan({ span_id: flags.spanId, claim: flags.claim, atom_type: flags.atomType as any, suggested_namespace: flags.namespace, sensitivity: flags.sensitivity as any, subject_entities: flags.subjectEntities, quote: flags.claim });
+      if (!proposalResult.ok || !proposalResult.proposal) {
+        const payload = { ok: false, errors: proposalResult.errors || ['failed to build memory atom proposal'] };
+        console.log(JSON.stringify(payload, null, 2));
+        return;
+      }
+      const record = proposalResult.proposal;
+      const result = enqueueMemoryAtomProposal(record, { queuePath: flags.queuePath, dryRun: flags.dryRun || !flags.yes });
+      if (flags.json) console.log(JSON.stringify(result, null, 2));
+      else if (result.duplicate) console.log(`Memory atom proposal already queued: ${record.proposal_id}`);
+      else if (result.dryRun) console.log(`Dry run: memory atom proposal would append to ${result.path}`);
+      else console.log(`Queued memory atom proposal: ${record.proposal_id}`);
+      return;
+    }
+    if (action === 'list') {
+      const result = listMemoryAtomProposals({ queuePath: flags.queuePath });
+      console.log(JSON.stringify(result, null, 2));
+      return;
+    }
   }
   if (sub === 'jobs') {
     const [action, ...jobArgs] = rest;
@@ -76,5 +121,5 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
       return;
     }
   }
-  throw new Error('Usage: gbrain ai route ... | gbrain ai jobs enqueue|list|retry ...');
+  throw new Error('Usage: gbrain ai route ... | gbrain ai jobs enqueue|list|retry ... | gbrain ai memory-atoms propose|list ...');
 }
