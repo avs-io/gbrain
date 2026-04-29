@@ -93,7 +93,7 @@ export function buildSourceDocument(page: PageLike): SourceDocument {
 }
 
 function assertSafeSlug(slug: string): void {
-  if (!slug || slug.startsWith('/') || slug.includes('\\')) {
+  if (!slug || slug.startsWith('/') || slug.includes('\\') || slug.includes('#')) {
     throw new Error(`Invalid source span slug: ${slug}`);
   }
   const segments = slug.split('/');
@@ -243,7 +243,8 @@ export function grepDocument(doc: SourceDocument, phrase: string, opts: GrepOpti
   const results: SourceWindow[] = [];
 
   for (const sectionName of sectionNames) {
-    const section = getSection(doc, sectionName);
+    const section = doc.sections[sectionName];
+    if (!section) continue;
     const phraseRanges = findLiteralRanges(section.text, phrase);
     const nearRanges = opts.near ? findLiteralRanges(section.text, opts.near) : [];
 
@@ -312,7 +313,8 @@ function tokens(text: string): string[] {
 }
 
 function locateInSection(doc: SourceDocument, sectionName: string, chunkText: string, minConfidence: number): SourceWindow | null {
-  const section = getSection(doc, sectionName);
+  const section = doc.sections[sectionName];
+  if (!section) return null;
   const normalizedChunk = normalizeNewlines(chunkText).trim();
   if (!normalizedChunk) return null;
 

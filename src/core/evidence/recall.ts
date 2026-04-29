@@ -254,7 +254,13 @@ export async function recallEvidence(engine: BrainEngine, query: string, opts: R
       continue;
     }
 
-    const located = locateChunkWindow(doc, hit.result.chunk_text, { section: hit.result.chunk_source, minConfidence: 0.7 });
+    const chunkSection = hit.result.chunk_source;
+    if (!doc.sections[chunkSection]) {
+      warnings.push(`candidate chunk section not available for source-backed recall: ${cacheKey} section=${chunkSection}`);
+      continue;
+    }
+
+    const located = locateChunkWindow(doc, hit.result.chunk_text, { section: chunkSection, minConfidence: 0.7 });
     if (located) {
       const expanded = expandWindow(doc, located, before, after);
       if (!seenSpans.has(expanded.spanId)) {

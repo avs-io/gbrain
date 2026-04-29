@@ -128,6 +128,20 @@ describe('recall evidence MVP', () => {
     expect(out.warnings.join(' ')).toContain('no exact source window');
   });
 
+  test('abstains without throwing when search hits frontmatter/body chunks unavailable as source sections', async () => {
+    const frontmatterHit = {
+      ...result(citadelSlug, 'Unshackled Mode Exit', 0.91),
+      chunk_source: 'frontmatter',
+    } as unknown as SearchResult;
+    const engine = fakeEngine(() => [frontmatterHit]);
+
+    const out = await recallEvidence(engine, 'Unshackled Mode Exit', { limit: 1 });
+
+    expect(out.status).toBe('abstain');
+    expect(out.evidence).toEqual([]);
+    expect(out.warnings.join(' ')).toContain('section=frontmatter');
+  });
+
   test('recall CLI emits JSON evidence and sets exitCode=2 only on abstain', async () => {
     const engine = fakeEngine((query) => query.includes('Citadel')
       ? [result(citadelSlug, 'We moved away from Citadel because it was too static and bunker-like.', 0.87)]

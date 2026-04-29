@@ -99,6 +99,33 @@ describe('source-window primitives', () => {
     expect(normalized?.matchedBy).toBe('normalized');
   });
 
+  test('locateChunkWindow maps heavily normalized whitespace without line drift', () => {
+    const doc = buildSourceDocument({
+      source_id: 'default',
+      slug: 'sources/test/normalized-whitespace',
+      compiled_truth: 'Intro\n  Alpha\tBeta\n\nGamma\u00a0Delta\nOutro',
+    });
+
+    const located = locateChunkWindow(doc, 'Alpha Beta Gamma Delta');
+    expect(located?.startLine).toBe(2);
+    expect(located?.endLine).toBe(4);
+    expect(located?.quote).toBe('  Alpha\tBeta\n\nGamma\u00a0Delta');
+    expect(located?.matchedBy).toBe('normalized');
+  });
+
+  test('frontmatter/body chunk sections fail closed instead of mapping to stored sections', () => {
+    const doc = fixtureDoc();
+
+    expect(locateChunkWindow(doc, 'World8 North Star', { section: 'frontmatter' })).toBeNull();
+    expect(locateChunkWindow(doc, 'Verdict: build the system that turns reality and values into the best possible decision.', { section: 'body' })).toBeNull();
+    expect(grepDocument(doc, 'World8 North Star', { section: 'frontmatter' })).toEqual([]);
+  });
+
+  test('span ids reject ambiguous slug/source separators', () => {
+    expect(() => makeSpanId({ sourceId: 'default', slug: 'sources/test/has#hash', section: 'compiled_truth', startLine: 1, endLine: 1 })).toThrow('Invalid source span slug');
+    expect(() => makeSpanId({ sourceId: 'source:withcolon', slug: 'sources/test/safe', section: 'compiled_truth', startLine: 1, endLine: 1 })).toThrow('Invalid source span sourceId');
+  });
+
   test('locateChunkWindow abstains on low-confidence text', () => {
     const doc = fixtureDoc();
     const missing = locateChunkWindow(doc, 'This phrase belongs to a totally different source with unrelated substance.');
