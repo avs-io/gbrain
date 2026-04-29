@@ -92,6 +92,10 @@ async function readStdin(): Promise<string> {
   return Buffer.concat(chunks).toString('utf8');
 }
 
+function containsSyntheticEvidence(recall: RecallResult): boolean {
+  return recall.evidence.some((e: any) => String(e.span_id || e.id || '').startsWith('syn:') || String(e.source_id || '').startsWith('syn:'));
+}
+
 async function loadRecallJson(path: string): Promise<RecallResult> {
   const raw = path === '-' ? await readStdin() : readFileSync(path, 'utf8');
   const parsed = JSON.parse(raw);
@@ -149,6 +153,8 @@ export async function runAnswerCommand(engine: BrainEngine | null, args: string[
       sourceId: flags.sourceId,
     });
   }
+
+  if (containsSyntheticEvidence(recall)) throw new Error('Synthetic evidence is not eligible for memory or citation-backed answers');
 
   if (flags.synthesis === 'deterministic-v2') {
     const result = buildDeterministicAnswerEnvelope(recall, { maxEvidence: flags.maxEvidence, maxQuoteChars: flags.maxQuoteChars });
