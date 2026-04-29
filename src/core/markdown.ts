@@ -111,33 +111,36 @@ export function parseMarkdown(
 ): ParsedMarkdown {
   const errors: ParseValidationError[] = [];
 
-  // Use resilient parsing first (handles malformed frontmatter),
-  // fall back to raw matter parse if that fails.
-  let frontmatter: Record<string, unknown>;
-  let body: string;
+  // Use resilient parsing first (handles malformed frontmatter). If YAML is
+  // still invalid, keep the page readable by falling back to empty frontmatter
+  // + raw body, and surface the parse error through validate mode.
+  let frontmatter: Record<string, unknown> = {};
+  let body: string = content;
+  let yamlParseError: Error | null = null;
   try {
     const { data, content: parsedBody } = parseFrontmatterResilient(content);
     frontmatter = data;
     body = parsedBody;
-  } catch {
-    // Fallback: raw matter parse (upstream behavior)
-    const parsed = matter(content);
-    frontmatter = parsed.data as Record<string, unknown>;
-    body = parsed.content ?? content;
+  } catch (error) {
+    yamlParseError = error instanceof Error ? error : new Error(String(error));
+    try {
+      const parsed = matter(content);
+      frontmatter = parsed.data as Record<string, unknown>;
+      body = parsed.content ?? content;
+      yamlParseError = null;
+    } catch {
+      frontmatter = {};
+      body = content;
+    }
   }
 
   if (opts?.validate) {
     collectValidationErrors(content, errors, {
       yamlParseError,
       expectedSlug: opts.expectedSlug,
-      parsedFrontmatter: parsed?.data ?? {},
+      parsedFrontmatter: frontmatter,
     });
   }
-
-  // When YAML parsing failed (rare; gray-matter is forgiving), fall back to
-  // empty frontmatter + raw content as the body so non-validate callers still
-  // get a usable shape.
-
 
   const { compiled_truth, timeline } = splitBody(body);
 

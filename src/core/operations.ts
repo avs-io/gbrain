@@ -13,6 +13,9 @@ import { importFromContent } from './import-file.ts';
 import { hybridSearch } from './search/hybrid.ts';
 import { expandQuery } from './search/expansion.ts';
 import { dedupResults } from './search/dedup.ts';
+import { resolveConceptAliasQueries } from './search/concept-alias.ts';
+import { routeTypedMemory } from './memory/typed-memory-router.ts';
+import { toTypedMemoryContextPack } from './memory/context-pack.ts';
 import { extractPageLinks, isAutoLinkEnabled, isAutoTimelineEnabled, parseTimelineEntries, makeResolver, type UnresolvedFrontmatterRef } from './link-extraction.ts';
 import * as db from './db.ts';
 
@@ -563,11 +566,21 @@ const search: Operation = {
     offset: { type: 'number', description: 'Skip first N results (for pagination)' },
   },
   handler: async (ctx, p) => {
-    const results = await ctx.engine.searchKeyword(p.query as string, {
+    const searchOpts = {
       limit: (p.limit as number) || 20,
       offset: (p.offset as number) || 0,
-    });
-    return dedupResults(results);
+    };
+    const results = await ctx.engine.searchKeyword(p.query as string, searchOpts);
+    if (results.length > 0) return dedupResults(results);
+
+    // Best-effort local living-memory bridge: when a conversational query names
+    // a known concept but keyword search is empty, retry its canonical aliases.
+    // This is fallback-only, so normal exact keyword results keep precedence.
+    for (const alias of resolveConceptAliasQueries(p.query as string)) {
+      const aliasResults = await ctx.engine.searchKeyword(alias, searchOpts);
+      if (aliasResults.length > 0) return dedupResults(aliasResults);
+    }
+    return [];
   },
   cliHints: { name: 'search', positional: ['query'] },
 };
@@ -587,11 +600,14 @@ const query: Operation = {
     // v0.20.0 Cathedral II Layer 7 (A2) / Layer 10 C3: two-pass structural expansion.
     near_symbol: { type: 'string', description: 'Anchor retrieval at this qualified symbol name (e.g., BrainEngine.searchKeyword). Enables A2 two-pass.' },
     walk_depth: { type: 'number', description: 'Structural walk depth 1-2. Default 0 (off). Expands anchors through code_edges with 1/(1+hop) decay.' },
+    with_typed_memory: { type: 'boolean', description: 'Opt-in: include read-only typed-memory route/context pack alongside normal query results.' },
+    typed_memory_limit: { type: 'number', description: 'Max typed-memory route results when --with-typed-memory is set (default 8).' },
+    include_high_typed_memory: { type: 'boolean', description: 'Include high-sensitivity typed-memory candidates in the opt-in context pack.' },
   },
   handler: async (ctx, p) => {
     const expand = p.expand !== false;
     const detail = (p.detail as 'low' | 'medium' | 'high') || undefined;
-    return hybridSearch(ctx.engine, p.query as string, {
+    const opts = {
       limit: (p.limit as number) || 20,
       offset: (p.offset as number) || 0,
       expansion: expand,
@@ -601,7 +617,53 @@ const query: Operation = {
       symbolKind: (p.symbol_kind as string) || undefined,
       nearSymbol: (p.near_symbol as string) || undefined,
       walkDepth: typeof p.walk_depth === 'number' ? (p.walk_depth as number) : undefined,
-    });
+    };
+    const requestedQuery = p.query as string;
+    const withTypedMemory = p.with_typed_memory === true;
+    const buildReturn = (results: unknown[], source: 'direct' | 'alias' | 'none' = 'direct', alias?: string) => {
+      if (!withTypedMemory) return results;
+      const typedMemoryLimit = (p.typed_memory_limit as number) || 8;
+      const typedMemoryContext = results.length > 0 ? results.map((r: any) => [r.slug, r.title, r.chunk_text].filter(Boolean).join(' — ')).join('\n') : '';
+      const routeResult = routeTypedMemory({
+        query: requestedQuery,
+        context: typedMemoryContext,
+        limit: typedMemoryLimit,
+        includeHigh: p.include_high_typed_memory === true,
+      });
+      return {
+        query: requestedQuery,
+        results,
+        typed_memory: toTypedMemoryContextPack(routeResult, {
+          query: requestedQuery,
+          context: typedMemoryContext,
+          limit: typedMemoryLimit,
+          includeHigh: p.include_high_typed_memory === true,
+        }),
+        integration: {
+          typed_memory_opt_in: true,
+          default_query_shape_preserved: true,
+          mode: 'opt_in_read_only',
+          search_source: source,
+          alias,
+          guardrails: {
+            trusted_pages_edited: false,
+            external_messages_sent: false,
+            global_config_changed: false,
+          },
+        },
+      };
+    };
+
+    const results = await hybridSearch(ctx.engine, requestedQuery, opts);
+    if (results.length > 0) return buildReturn(results, 'direct');
+
+    // Fallback-only concept alias bridge. Applies even with --no-expand because
+    // deterministic local aliases are not LLM query expansion.
+    for (const alias of resolveConceptAliasQueries(requestedQuery)) {
+      const aliasResults = await hybridSearch(ctx.engine, alias, opts);
+      if (aliasResults.length > 0) return buildReturn(aliasResults, 'alias', alias);
+    }
+    return buildReturn([], 'none');
   },
   cliHints: { name: 'query', positional: ['query'] },
 };

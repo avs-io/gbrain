@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'eval', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'repair-jsonb', 'orphans', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'eval', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'repair-jsonb', 'recall', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter']);
 
 async function main() {
   // Parse global flags (--quiet / --progress-json / --progress-interval)
@@ -179,11 +179,28 @@ function formatResult(opName: string, result: unknown): string {
     }
     case 'search':
     case 'query': {
-      const results = result as any[];
-      if (results.length === 0) return 'No results.\n';
-      return results.map(r =>
+      const payload = result as any;
+      const results = Array.isArray(payload) ? payload : (payload.results || []);
+      const lines: string[] = [];
+      if (results.length === 0) lines.push('No results.');
+      else lines.push(...results.map((r: any) =>
         `[${r.score?.toFixed(4) || '?'}] ${r.slug} -- ${r.chunk_text?.slice(0, 100) || ''}${r.stale ? ' (stale)' : ''}`,
-      ).join('\n') + '\n';
+      ));
+      if (!Array.isArray(payload) && payload.typed_memory) {
+        const tm = payload.typed_memory;
+        const routeIds = (tm.routes || tm.matched_routes || []).map((r: any) => r.id).join(', ') || 'none';
+        const status = String(tm.status || (tm.pass ? 'hit' : 'miss')).toUpperCase();
+        lines.push('', `${status} typed-memory context (${payload.integration?.mode || 'opt_in'}): ${routeIds}`);
+        for (const r of tm.items || tm.results || []) {
+          lines.push(`- ${r.id} [${r.memory_type}, ${r.sensitivity}, ${r.surfacing_policy || 'unspecified'}] score=${r.score}`);
+          if (r.claim) lines.push(`  ${r.claim}`);
+          const sourceLabel = r.provenance?.source_label || r.source?.path;
+          if (sourceLabel) lines.push(`  source: ${sourceLabel}`);
+          if (r.review_required) lines.push('  review required');
+        }
+        if (tm.warnings?.length) lines.push(`warnings: ${tm.warnings.join('; ')}`);
+      }
+      return lines.join('\n') + '\n';
     }
     case 'get_tags': {
       const tags = result as string[];
@@ -293,6 +310,21 @@ async function handleCliOnly(command: string, args: string[]) {
   if (command === 'integrity') {
     const { runIntegrity } = await import('./commands/integrity.ts');
     await runIntegrity(args);
+    return;
+  }
+  if (command === 'memory') {
+    const { runMemory } = await import('./commands/memory.ts');
+    await runMemory(args);
+    return;
+  }
+  if (command === 'claim') {
+    const { runClaimCommand } = await import('./commands/claim.ts');
+    await runClaimCommand(args);
+    return;
+  }
+  if (command === 'source' && (!args[0] || args.includes('--help') || args.includes('-h'))) {
+    const { runSourceCommand } = await import('./commands/source.ts');
+    await runSourceCommand(null, args);
     return;
   }
   if (command === 'publish') {
@@ -525,6 +557,16 @@ async function handleCliOnly(command: string, args: string[]) {
         await runSources(engine, args);
         break;
       }
+      case 'source': {
+        const { runSourceCommand } = await import('./commands/source.ts');
+        await runSourceCommand(engine, args);
+        break;
+      }
+      case 'recall': {
+        const { runRecallCommand } = await import('./commands/recall.ts');
+        await runRecallCommand(engine, args);
+        break;
+      }
       case 'code-def': {
         const { runCodeDef } = await import('./commands/code-def.ts');
         await runCodeDef(engine, args);
@@ -633,6 +675,8 @@ SEARCH
   search <query>                     Keyword search (tsvector)
   query <question> [--no-expand]     Hybrid search (RRF + expansion)
   ask <question> [--no-expand]       Alias for query
+  recall <query> [--quotes] [--json] Exact source-window recall with evidence
+  claim propose --from-span <id>      Propose review-only source-backed claim
 
 IMPORT/EXPORT
   import <dir> [--no-embed]          Import markdown directory
@@ -688,6 +732,8 @@ SOURCES (multi-repo / multi-brain)
   sources list                       Show registered sources
   sources add <id> --path <p>        Register a source (id = short name, e.g. 'wiki')
   sources remove <id>                Remove a source + its pages
+  source show|around|grep            Inspect exact stored source quote windows
+  recall <query> --quotes --json     Recall exact source quotes or abstain
   sync --all                         Sync all sources with a local_path
   sync --source <id>                 Sync one specific source
   repos ...                          DEPRECATED alias for 'sources' (v0.19.0)
