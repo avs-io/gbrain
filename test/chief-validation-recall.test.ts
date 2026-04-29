@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 import type { BrainEngine } from '../src/core/engine.ts';
 import { recallEvidence } from '../src/core/evidence/recall.ts';
+import { synthesizeAnswerFromRecall } from '../src/core/evidence/answer-synthesis.ts';
 
 const pages = new Map([
   ['sources/chatgpt/full-export-all/2026-01-25-what-i-know-about-you-694d3dc5', {
@@ -108,7 +109,7 @@ function engine(): BrainEngine {
 }
 
 describe('Chief-confirmed autobiographical validation recall', () => {
-  test('recalls Archana/Rukam relationship and high-friction incidents through source hints', async () => {
+  test('recalls and synthesizes Archana/Rukam relationship and high-friction incidents through source hints', async () => {
     const out = await recallEvidence(engine(), 'What was my relationship with Archana like and what high friction incidents existed?', { limit: 8, before: 0, after: 0 });
 
     expect(out.status).toBe('hit');
@@ -117,9 +118,18 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(joined).toContain("I haven't even told them I had a kid");
     expect(joined).toContain('Archana — thank you');
     expect(joined).toContain('weekend work expectations');
+
+    const answer = synthesizeAnswerFromRecall(out, { maxEvidence: 8, maxQuoteChars: 220 });
+    expect(answer.status).toBe('hit');
+    expect(answer.answer).toContain('Relationship frame');
+    expect(answer.answer).toContain('High-friction Rukam incidents');
+    expect(answer.answer).toContain('Weekend/workload pressure');
+    expect(answer.answer).toContain('10:05 instead of 10');
+    expect(answer.answer).toContain('Archana — thank you');
+    expect(answer.answer).toContain('gbs1:');
   });
 
-  test('recalls ACC before MWAL and why MWAL/adjacent rails were not pursued as standalone primary', async () => {
+  test('recalls and synthesizes ACC before MWAL and why MWAL/adjacent rails were not pursued as standalone primary', async () => {
     const out = await recallEvidence(engine(), 'What was the idea before MWAL and why was MWAL not pursued?', { limit: 9, before: 0, after: 0 });
 
     expect(out.status).toBe('hit');
@@ -129,9 +139,18 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(joined).toContain('face of the customer was amorphous');
     expect(joined).toContain('zero network lock-in');
     expect(joined).toContain('policy theatre and lack of real leverage');
+
+    const answer = synthesizeAnswerFromRecall(out, { maxEvidence: 9, maxQuoteChars: 240 });
+    expect(answer.status).toBe('hit');
+    expect(answer.answer).toContain('Lineage before MWAL');
+    expect(answer.answer).toContain('Why ACC/MWAL were not enough as the base rail');
+    expect(answer.answer).toContain('Praeon-style rail lesson');
+    expect(answer.answer).toContain('Agent Commerce Clearinghouse (ACC)');
+    expect(answer.answer).toContain('zero network lock-in');
+    expect(answer.answer).toContain('policy theatre and lack of real leverage');
   });
 
-  test('recalls Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
+  test('recalls and synthesizes Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
     const out = await recallEvidence(engine(), 'What supplements was Anu using during pregnancy and when did we shift to ferrous ascorbate? What was ferritin?', { limit: 6, before: 0, after: 0 });
 
     expect(out.status).toBe('hit');
@@ -141,5 +160,14 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     expect(joined).toContain('Ferrous bisglycinate 45 mg');
     expect(joined).toContain('100mg ferrous ascorbate');
     expect(joined).toContain('ferritin 19.9 ng/mL');
+
+    const answer = synthesizeAnswerFromRecall(out, { maxEvidence: 6, maxQuoteChars: 260 });
+    expect(answer.status).toBe('hit');
+    expect(answer.answer).toContain('Supplement stack captured in source');
+    expect(answer.answer).toContain('Initial iron plan');
+    expect(answer.answer).toContain('Ferrous ascorbate / ferritin context');
+    expect(answer.answer).toContain('Maternal Supplementation Stack');
+    expect(answer.answer).toContain('Ferrous bisglycinate 45 mg');
+    expect(answer.answer).toContain('ferritin 19.9 ng/mL');
   });
 });
