@@ -61,17 +61,19 @@ function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> 
     const line = compact(raw.replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, ''));
     if (!line) continue;
     const bullet = /^\s*[-*•]/.test(raw);
-    const sentences = line.split(/(?<=[.!?])\s+(?=[A-Z0-9"'“])/).map(compact).filter(Boolean);
+    const sentenceCandidates = line
+      .split(/(?<=[.!?])\s+(?=[A-Z0-9"'“])/)
+      .map(compact)
+      .filter(Boolean);
+    const segments = sentenceCandidates.length > 1 ? sentenceCandidates : [line];
     const kindFor = (text: string): SignalKind => {
       const commaList = text.includes(':') && text.split(',').length >= 4;
       if (commaList) return 'list_item';
       if (/\d/.test(text)) return 'numeric';
-      return bullet ? 'bullet' : 'sentence';
+      return bullet ? 'bullet' : sentenceCandidates.length > 1 ? 'sentence' : 'line';
     };
-    if (sentences.length > 1) {
-      for (const sentence of sentences) out.push({ text: sentence, kind: kindFor(sentence) });
-    } else {
-      out.push({ text: line, kind: kindFor(line) === 'sentence' ? 'line' : kindFor(line) });
+    for (const segment of segments) {
+      out.push({ text: segment, kind: kindFor(segment) });
     }
   }
   return out;
@@ -125,12 +127,18 @@ function isMeasurementDominant(text: string): boolean {
 function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { role: EvidenceSignalRole; confidence: SignalConfidence; score: number } {
   const rel = relevance(text, terms);
   const stackQuestion = isStackQuestion(frame);
+  const lower = text.toLowerCase();
   if (/\b(?:unrelated|irrelevant|distractor|not relevant)\b/i.test(text)) return { role: 'distractor', confidence: 'low', score: rel };
-  if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
-  if (stackQuestion && /\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  if (/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|not enough|zero network lock-in|low gravity|lack of real leverage)\b/i.test(text)) return { role: 'deprioritization_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  if (/\b(?:why|because|due to|not clear|unclear|incumbent|zero lock-in|zero network lock-in|better direction|harder|easier|reason|rationale)\b/i.test(text)) {
+    return { role: 'decision_rationale', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
+  }
+  if (/\b(?:formative|trust|trusted|meaningful|shaped|support|helped|valued|relationship)\b/i.test(text) && !/\b(?:not clear|unclear|because|due to|reason|rationale)\b/i.test(text)) {
+    return { role: 'relationship_positive_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  }
+  if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  if (stackQuestion && /\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
   if (isMeasurementDominant(text) || /\b(?:score|metric|measurement|count|hb|fgr|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
-  if (/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|not enough|zero network lock-in|low gravity|lack of real leverage)\b/i.test(text)) return { role: 'deprioritization_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
-
   let bestRole: EvidenceSignalRole | null = null;
   let best = 0;
   for (const [role, patterns] of ROLE_PATTERNS) {
@@ -143,7 +151,7 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
   if (!bestRole) return { role: rel > 0 || frame.requestedAspects.includes('summary') ? 'decision_option' : 'distractor', confidence: rel > 1 ? 'medium' : 'low', score: rel };
   const rawScore = best * 2 + Math.min(rel, 3);
   const confidence: SignalConfidence = rawScore >= 4 ? 'high' : rawScore >= 2 ? 'medium' : 'low';
-  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol)\b/i.test(text)) {
+  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol|why|reason|rationale|incumbent|lock-in)\b/i.test(lower)) {
     return { role: 'distractor', confidence: 'low', score: rawScore };
   }
   return { role: bestRole, confidence, score: rawScore };

@@ -64,7 +64,7 @@ export const ANSWER_SHAPES: Record<AnswerShapeId, AnswerShapeDef> = {
     title: 'Relationship recall',
     description: 'Reconstructs relationship framing plus concrete positive/friction incidents.',
     slots: [
-      { id: 'relationship_frame', title: 'Relationship frame', aspects: ['relationship', 'summary'], required: true },
+      { id: 'relationship_frame', title: 'Relationship frame', aspects: ['relationship', 'summary', 'rationale'], required: true },
       { id: 'incidents', title: 'Incidents', aspects: ['incidents'], required: false },
       { id: 'rationale_or_context', title: 'Context / why it mattered', aspects: ['rationale'], required: false },
       { id: 'state_over_time', title: 'State over time', aspects: ['prior_state', 'later_state', 'current_state', 'timeline'], required: false },
@@ -77,7 +77,7 @@ export const ANSWER_SHAPES: Record<AnswerShapeId, AnswerShapeDef> = {
     slots: [
       { id: 'prior_option', title: 'Prior option', aspects: ['prior_state'], required: false },
       { id: 'decision_or_shift', title: 'Decision / shift', aspects: ['change'], required: true },
-      { id: 'rationale', title: 'Rationale', aspects: ['rationale'], required: true },
+      { id: 'rationale', title: 'Rationale', aspects: ['rationale', 'summary'], required: true },
       { id: 'later_state', title: 'Later state', aspects: ['later_state', 'current_state'], required: false },
       { id: 'timeline', title: 'Timeline', aspects: ['timeline'], required: false },
     ],
@@ -91,7 +91,7 @@ export const ANSWER_SHAPES: Record<AnswerShapeId, AnswerShapeDef> = {
       { id: 'change', title: 'Change', aspects: ['change'], required: false },
       { id: 'measurement', title: 'Measurement', aspects: ['measurement'], required: false },
       { id: 'timeline', title: 'Timeline', aspects: ['timeline'], required: false },
-      { id: 'rationale', title: 'Rationale', aspects: ['rationale'], required: false },
+      { id: 'rationale', title: 'Rationale', aspects: ['rationale', 'summary'], required: false },
     ],
   },
   concept_evolution: {

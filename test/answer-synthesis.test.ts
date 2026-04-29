@@ -199,6 +199,116 @@ describe('answer synthesis from recall evidence', () => {
     expect(stackLine.split(';').length - 1).toBeLessThanOrEqual(1);
   });
 
+  test('selects formative relationship framing over later-state clutter', () => {
+    const relationshipRecall: RecallResult = {
+      query: 'What was my relationship with Archana like?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/archana-relationship#compiled_truth:L1-L2',
+          source_id: 'default',
+          slug: 'sources/test/archana-relationship',
+          title: 'Archana Relationship',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 2,
+          quote: 'Archana was formative and trusted. Later, things got clunky and transactional.',
+          quote_hash: 'h'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.91,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(relationshipRecall, { maxEvidence: 1, maxQuoteChars: 220 });
+
+    expect(out.answer).toContain('formative');
+    expect(out.answer).toContain('trusted');
+    expect(out.answer).not.toContain('clunky and transactional');
+  });
+
+  test('selects rationale sentences with because/incumbent framing', () => {
+    const rationaleRecall: RecallResult = {
+      query: 'Why was ACC not pursued?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/acc-rationale#compiled_truth:L1-L2',
+          source_id: 'default',
+          slug: 'sources/test/acc-rationale',
+          title: 'ACC Rationale',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 2,
+          quote: 'ACC was not pursued because incumbents already bundled escrow and chargeback tooling, so there was zero lock-in and low leverage.',
+          quote_hash: 'i'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.9,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(rationaleRecall, { maxEvidence: 1, maxQuoteChars: 220 });
+
+    expect(out.answer).toContain('because');
+    expect(out.answer).toContain('incumbents');
+    expect(out.answer).toContain('zero lock-in');
+  });
+
+  test('merges stack item signals across windows into fuller coverage', () => {
+    const stackRecall: RecallResult = {
+      query: 'What supplements was Anu taking?',
+      status: 'hit',
+      evidence: [
+        {
+          span_id: 'gbs1:default:sources/test/pregnancy-stack-a#compiled_truth:L1-L1',
+          source_id: 'default',
+          slug: 'sources/test/pregnancy-stack-a',
+          title: 'Pregnancy Stack A',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 1,
+          quote: 'Maternal Supplementation Stack (Already Taken Daily): Vitamin C + Quercetin 500mg, Folic acid 5mg, Methylfolate + Methylcobalamin.',
+          quote_hash: 'j'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.9,
+        },
+        {
+          span_id: 'gbs1:default:sources/test/pregnancy-stack-b#compiled_truth:L1-L1',
+          source_id: 'default',
+          slug: 'sources/test/pregnancy-stack-b',
+          title: 'Pregnancy Stack B',
+          section: 'compiled_truth',
+          start_line: 1,
+          end_line: 1,
+          quote: 'NMN 500mg, NAC 600mg, Phosphatidylcholine 2g, Magnesium Glycinate, Metformin.',
+          quote_hash: 'k'.repeat(64),
+          line_basis: 'stored_section',
+          matched_by: 'exact',
+          score: 0.89,
+        },
+      ],
+      warnings: [],
+      integration: { search_source: 'direct' },
+    };
+
+    const out = synthesizeAnswerFromRecall(stackRecall, { maxEvidence: 2, maxQuoteChars: 320 });
+    const stackLine = out.answer.split('\n').find(line => line.includes('Supplement stack captured in source')) ?? '';
+
+    expect(stackLine).toContain('Vitamin C');
+    expect(stackLine).toContain('NMN 500mg');
+    expect(stackLine).toContain('NAC 600mg');
+    expect(stackLine).toContain('Phosphatidylcholine 2g');
+    expect(stackLine).toContain('Magnesium Glycinate');
+  });
+
   test('strips markdown headings and citation artifacts from source windows before synthesis', () => {
     const artifactRecall: RecallResult = {
       query: 'What changed in the protocol stack?',

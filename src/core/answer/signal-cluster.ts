@@ -63,10 +63,17 @@ function slotSignalScore(signal: EvidenceSignal, slotId: string): number {
   let score = signal.score;
   if (slotId === 'stack') {
     if (signal.role === 'protocol_item') score += 8;
-    if (signal.kind === 'list_item' || signal.kind === 'bullet') score += 3;
-    if (/\b(?:,|;| and | with | plus )\b/i.test(signal.text)) score += 2;
-    if (/\b(?:hb|fgr|ferritin|measurement|level|lab|window|score|count)\b/i.test(signal.text)) score -= 6;
-    if (/\b(?:because|due to|rationale|reason|fetal|maternal|clinical|operational)\b/i.test(signal.text)) score -= 4;
+    if (signal.kind === 'list_item' || signal.kind === 'bullet') score += 4;
+    if (/\b(?:,|;| and | with | plus )\b/i.test(signal.text)) score += 3;
+    if (/\b(?:why|because|due to|rationale|reason|fetal|maternal|clinical|operational|hb|fgr|ferritin|measurement|level|lab|window|score|count)\b/i.test(signal.text)) score -= 8;
+  }
+  if (slotId === 'relationship_frame') {
+    if (/\b(?:formative|trust|trusted|shaped|meaningful|support|helped|valued)\b/i.test(signal.text)) score += 5;
+    if (/\b(?:why|because|rationale|reason|not clear|unclear|incumbent|zero lock-in)\b/i.test(signal.text)) score += 2;
+  }
+  if (slotId === 'rationale' || slotId === 'rationale_or_context') {
+    if (/\b(?:why|because|not clear|unclear|incumbent|zero lock-in|zero network lock-in|reason|rationale|due to)\b/i.test(signal.text)) score += 6;
+    if (/\b(?:formative|trust|trusted|shaped|meaningful)\b/i.test(signal.text)) score += 1;
   }
   return score;
 }

@@ -30,10 +30,20 @@ function claimKind(slotId: string, signals: EvidenceSignal[]): ClaimAtom['kind']
 }
 
 function compactListText(signals: EvidenceSignal[], maxQuoteChars: number): string {
-  const text = signals.map(signal => signal.text).join(' ').replace(/\bciteturn\w+\b/gi, '').replace(/\bturn\d+search\d+\b/gi, '').trim();
+  const chunks: string[] = [];
+  for (const signal of signals) {
+    const piece = signal.text
+      .replace(/\bciteturn\w+\b/gi, '')
+      .replace(/\bturn\d+search\d+\b/gi, '')
+      .trim();
+    if (!piece) continue;
+    if (chunks.some(existing => existing === piece)) continue;
+    chunks.push(piece);
+  }
+  const text = chunks.join('; ').trim();
   if (text.length <= maxQuoteChars) return sentence(text);
   const cut = text.slice(0, Math.max(0, maxQuoteChars - 1));
-  const boundary = Math.max(cut.lastIndexOf(', '), cut.lastIndexOf('; '), cut.lastIndexOf(' '));
+  const boundary = Math.max(cut.lastIndexOf('; '), cut.lastIndexOf(', '), cut.lastIndexOf(' '));
   return `${(boundary > maxQuoteChars * 0.5 ? cut.slice(0, boundary) : cut).trim()}…`;
 }
 
@@ -75,7 +85,7 @@ function filterSlotDuplicates(slotSignals: EvidenceSignal[], seen: Map<string, s
 function compactStackSignals(signals: EvidenceSignal[]): EvidenceSignal[] {
   const protocolSignals = signals.filter(signal => signal.role === 'protocol_item');
   const listLike = protocolSignals.filter(signal => /[,;]|\b(?: and | with | plus )\b/i.test(signal.text));
-  const preferred = (listLike.length > 0 ? listLike : protocolSignals).filter(signal => !/\b(?:hb|fgr|ferritin|measurement|level|lab|window|score|count|because|due to|rationale|reason|fetal|maternal|clinical|operational)\b/i.test(signal.text));
+  const preferred = (listLike.length > 0 ? listLike : protocolSignals).filter(signal => !/\b(?:why|because|due to|rationale|reason|fetal|maternal|clinical|operational|hb|fgr|ferritin|measurement|level|lab|window|score|count)\b/i.test(signal.text));
   return preferred.length > 0 ? preferred : protocolSignals;
 }
 
@@ -106,7 +116,7 @@ export function compileClaims(clusters: SlotSignalCluster[], evidence: EvidenceW
 
     const sourceSignals = cluster.slotId === 'stack' ? compactStackSignals(strong) : strong;
     const selected = filterSlotDuplicates(
-      cluster.slotId === 'stack' ? sourceSignals.slice(0, 4) : sourceSignals.slice(0, 2),
+      cluster.slotId === 'stack' ? sourceSignals.slice(0, Math.min(8, sourceSignals.length)) : sourceSignals.slice(0, 2),
       seenFingerprints,
     );
     if (wanted.has(cluster.slotId) && selected.length === 0) {
