@@ -1,13 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { writeFileSync } from 'node:fs';
-import { buildSyntheticQueryCases, seedFromSpan, runSyntheticEvalJsonl, runSyntheticEvalCases } from '../core/synthetic/index.ts';
+import { readFileSync, writeFileSync } from 'node:fs';
+import { buildSyntheticQueryCases, seedFromSpan, runSyntheticEvalJsonl, runSyntheticEvalCases, generateClusteredEvalCases } from '../core/synthetic/index.ts';
 import { readSyntheticCasesJsonl, readSyntheticRecordsJsonl, validateSyntheticQueryCase, validateSyntheticRecord } from '../core/synthetic/index.ts';
 import type { BrainEngine } from '../core/engine.ts';
 import type { SyntheticQueryShape } from '../core/synthetic/types.ts';
 
-function parseFlags(rest: string[]): { fromSpan?: string; shape: SyntheticQueryShape[]; topic?: string; claim?: string; hardNegatives: boolean; count?: number; out?: string; yes: boolean; json: boolean; run?: string } {
+function parseFlags(rest: string[]): { fromSpanFile?: string; fromSpan?: string; shape: SyntheticQueryShape[]; topic?: string; claim?: string; hardNegatives: boolean; count?: number; out?: string; yes: boolean; json: boolean; run?: string } {
   const shape: SyntheticQueryShape[] = [];
   let fromSpan: string | undefined;
+  let fromSpanFile: string | undefined;
   let topic: string | undefined;
   let claim: string | undefined;
   let hardNegatives = false;
@@ -20,6 +20,8 @@ function parseFlags(rest: string[]): { fromSpan?: string; shape: SyntheticQueryS
     const a = rest[i];
     if (a === '--from-span') fromSpan = rest[++i];
     else if (a?.startsWith('--from-span=')) fromSpan = a.slice(12);
+    else if (a === '--from-spans') fromSpanFile = rest[++i];
+    else if (a?.startsWith('--from-spans=')) fromSpanFile = a.slice(13);
     else if (a === '--shape') shape.push(rest[++i] as SyntheticQueryShape);
     else if (a?.startsWith('--shape=')) shape.push(a.slice(8) as SyntheticQueryShape);
     else if (a === '--topic') topic = rest[++i];
@@ -38,7 +40,7 @@ function parseFlags(rest: string[]): { fromSpan?: string; shape: SyntheticQueryS
     else if (a === '--cases') run = rest[++i];
     else if (a?.startsWith('--cases=')) run = a.slice(8);
   }
-  return { fromSpan, shape, topic, claim, hardNegatives, count, out, yes, json, run };
+  return { fromSpanFile, fromSpan, shape, topic, claim, hardNegatives, count, out, yes, json, run };
 }
 
 function help(): void {
@@ -47,6 +49,7 @@ function help(): void {
 USAGE
   gbrain synthetic validate <file>
   gbrain synthetic eval generate --from-span <gbs1-id> [--shape <shape>] [--topic <topic>] [--claim <claim>] [--hard-negatives] [--count <n>] [--out <jsonl>] [--yes] [--json]
+  gbrain synthetic eval generate-cluster --from-spans <json file> --topic <topic> [--shape <shape>] [--hard-negatives] [--out <jsonl>] [--yes] [--json]
   gbrain synthetic eval run --cases <jsonl> [--json]
 `);
 }
@@ -79,9 +82,18 @@ export async function runSyntheticCommand(_engine: BrainEngine | null, args: str
     const seed = seedFromSpan(flags.fromSpan, { topic: flags.topic, claim: flags.claim });
     const cases = buildSyntheticQueryCases({ seeds: [seed], shapes: flags.shape, topic: flags.topic, claim: flags.claim, hardNegatives: flags.hardNegatives, count: flags.count });
     const summary = runSyntheticEvalCases(cases);
-    if (flags.out && flags.yes) {
-      writeFileSync(flags.out, cases.map(c => JSON.stringify(c)).join('\n') + '\n');
-    }
+    if (flags.out && flags.yes) writeFileSync(flags.out, cases.map(c => JSON.stringify(c)).join('\n') + '\n');
+    if (flags.json) console.log(JSON.stringify({ ok: summary.ok, dry_run: !flags.yes, out: flags.out, count: cases.length, summary, cases }, null, 2));
+    else console.log(flags.yes && flags.out ? `wrote ${cases.length} cases to ${flags.out}` : `dry-run: ${cases.length} cases`);
+    return;
+  }
+  if (sub === 'eval' && rest[0] === 'generate-cluster') {
+    const flags = parseFlags(rest.slice(1));
+    if (!flags.fromSpanFile) throw new Error('Usage: gbrain synthetic eval generate-cluster --from-spans <json file>');
+    const spans = JSON.parse(readFileSync(flags.fromSpanFile, 'utf8')) as Array<{ span_id: string; quote: string; source_item_id?: string; topic?: string; claim?: string; slug?: string; entities?: string[] }>;
+    const cases = generateClusteredEvalCases({ spans, topic: flags.topic, shapes: flags.shape.length ? flags.shape : ['exact_fact'], hardNegatives: flags.hardNegatives, countPerShape: flags.count });
+    const summary = runSyntheticEvalCases(cases);
+    if (flags.out && flags.yes) writeFileSync(flags.out, cases.map(c => JSON.stringify(c)).join('\n') + '\n');
     if (flags.json) console.log(JSON.stringify({ ok: summary.ok, dry_run: !flags.yes, out: flags.out, count: cases.length, summary, cases }, null, 2));
     else console.log(flags.yes && flags.out ? `wrote ${cases.length} cases to ${flags.out}` : `dry-run: ${cases.length} cases`);
     return;
