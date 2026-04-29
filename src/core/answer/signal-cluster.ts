@@ -61,6 +61,10 @@ function stableSignalSort(a: EvidenceSignal, b: EvidenceSignal): number {
 
 function slotSignalScore(signal: EvidenceSignal, slotId: string): number {
   let score = signal.score;
+  if (slotId === 'incidents') {
+    if (/\b(?:friction|toxic|incident|incidents|time[- ]policing|work[- ]expectation|work expectations|dread|fear|kid|kids|children|not told|didn't tell|did not tell)\b/i.test(signal.text)) score += 10;
+    if (/\b(?:trust|thank|formative|meaningful|shaped|clarity|rigor|conviction|support|mentor|helped|valued)\b/i.test(signal.text)) score -= 15;
+  }
   if (slotId === 'stack') {
     if (signal.role === 'protocol_item') score += 8;
     if (signal.kind === 'list_item' || signal.kind === 'bullet') score += 4;
@@ -74,6 +78,10 @@ function slotSignalScore(signal: EvidenceSignal, slotId: string): number {
   if (slotId === 'rationale' || slotId === 'rationale_or_context') {
     if (/\b(?:why|because|not clear|unclear|incumbent|zero lock-in|zero network lock-in|reason|rationale|due to)\b/i.test(signal.text)) score += 6;
     if (/\b(?:formative|trust|trusted|shaped|meaningful)\b/i.test(signal.text)) score += 1;
+  }
+  if (slotId === 'later_state') {
+    if (/\b(?:later|became|becomes|rides on|on top of|base rail|current target|current|module)\b/i.test(signal.text)) score += 12;
+    if (/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|shift(?:ed)? away)\b/i.test(signal.text)) score -= 4;
   }
   return score;
 }

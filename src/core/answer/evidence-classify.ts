@@ -30,9 +30,12 @@ export interface EvidenceSignal {
   score: number;
 }
 
+const INCIDENT_KEYWORDS = /\b(?:friction|toxic|incident|incidents|time[- ]policing|work[- ]expectation|work expectations|dread|fear|kid|kids|children|not told|didn't tell|did not tell)\b/i;
+const POSITIVE_RELATIONSHIP_ONLY = /\b(?:trust|thank|formative|meaningful|shaped|clarity|rigor|conviction|support|mentor|helped|valued)\b/i;
+
 const ROLE_PATTERNS: Array<[EvidenceSignalRole, RegExp[]]> = [
-  ['relationship_positive_signal', [/\b(?:trust|thank|formative|meaningful|shaped|clarity|rigor|conviction|support|mentor|helped|valued)\b/i]],
-  ['relationship_friction_signal', [/\b(?:friction|toxic|pressure|uncomfortable|cut a half day|weekend work|work expectations|dead ev|dissatisfaction|conflict|incident|time[- ]policing|weekend|weekdays?|10:05|10 instead of 10)\b/i]],
+  ['relationship_positive_signal', [POSITIVE_RELATIONSHIP_ONLY]],
+  ['relationship_friction_signal', [INCIDENT_KEYWORDS]],
   ['decision_option', [/\b(?:option|idea|build|attempt|wedge|rail|module|stack|protocol|regimen|before|initial(?:ly)?)\b/i]],
   ['decision_rationale', [/\b(?:because|why|rationale|reason|due to|as the|isn't|is not|was not|wasn't|was too|too static|job isn|stronger|easier|better direction|risks?|lack of|customer|incumbents?|absorb|leverage)\b/i]],
   ['deprioritization_signal', [/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|shift(?:ed)? away|not enough|zero network lock-in|low gravity|risks becoming|dead ev|lack of real leverage)\b/i]],
@@ -72,9 +75,7 @@ function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> 
       if (/\d/.test(text)) return 'numeric';
       return bullet ? 'bullet' : sentenceCandidates.length > 1 ? 'sentence' : 'line';
     };
-    for (const segment of segments) {
-      out.push({ text: segment, kind: kindFor(segment) });
-    }
+    for (const segment of segments) out.push({ text: segment, kind: kindFor(segment) });
   }
   return out;
 }
@@ -130,10 +131,10 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
   const lower = text.toLowerCase();
   if (/\b(?:unrelated|irrelevant|distractor|not relevant)\b/i.test(text)) return { role: 'distractor', confidence: 'low', score: rel };
   if (/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|not enough|zero network lock-in|low gravity|lack of real leverage)\b/i.test(text)) return { role: 'deprioritization_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
-  if (/\b(?:why|because|due to|not clear|unclear|incumbent|zero lock-in|zero network lock-in|better direction|harder|easier|reason|rationale)\b/i.test(text)) {
+  if (/\b(?:why|because|due to|not clear|unclear|incumbent|zero network lock-in|better direction|harder|easier|reason|rationale)\b/i.test(text)) {
     return { role: 'decision_rationale', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
   }
-  if (/\b(?:formative|trust|trusted|meaningful|shaped|support|helped|valued|relationship)\b/i.test(text) && !/\b(?:not clear|unclear|because|due to|reason|rationale)\b/i.test(text)) {
+  if (POSITIVE_RELATIONSHIP_ONLY.test(text) && !INCIDENT_KEYWORDS.test(text) && !/\b(?:not clear|unclear|because|due to|reason|rationale)\b/i.test(text)) {
     return { role: 'relationship_positive_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
   }
   if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
@@ -152,7 +153,7 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
   if (!bestRole) return { role: rel > 0 || frame.requestedAspects.includes('summary') ? 'decision_option' : 'distractor', confidence: rel > 1 ? 'medium' : 'low', score: rel };
   const rawScore = best * 2 + Math.min(rel, 3);
   const confidence: SignalConfidence = rawScore >= 4 ? 'high' : rawScore >= 2 ? 'medium' : 'low';
-  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol|why|reason|rationale|incumbent|lock-in|later|became|module|rides|current)\b/i.test(lower)) {
+  if (rel === 0 && best === 1 && !/\b(?:mg|ng\/ml|toxic|trust|rejected|shift|because|risk|stack|protocol|why|reason|rationale|incumbent|lock-in|later|became|module|rides|current|friction|incident|time-policing|work expectation|dread|fear|kid|not told)\b/i.test(lower)) {
     return { role: 'distractor', confidence: 'low', score: rawScore };
   }
   return { role: bestRole, confidence, score: rawScore };

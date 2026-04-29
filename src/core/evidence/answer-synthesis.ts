@@ -52,7 +52,6 @@ interface SynthesisSectionSpec {
 
 function stripSourceArtifacts(text: string): string {
   return text
-    // ChatGPT/browser transcript citation glyphs sometimes survive inside source text.
     .replace(/cite[^]*/g, '')
     .replace(/citeturn\w+/gi, '')
     .replace(/turn\d+search\d+/gi, '')
@@ -170,7 +169,8 @@ function selectSentences(
   alreadyUsed: Set<string>,
   extraction: 'sentence' | 'clause' = 'sentence',
 ): CitationSentence[] {
-  const candidates: Array<CitationSentence & { score: number; evIndex: number; sentenceIndex: number }> = [];
+  const priorityTerms = ['later', 'became', 'module', 'rides on', 'on top', 'base rail', 'current target'];
+  const candidates: Array<CitationSentence & { score: number; evIndex: number; sentenceIndex: number; priority: number }> = [];
   for (let evIndex = 0; evIndex < evidence.length; evIndex++) {
     const ev = evidence[evIndex];
     const citation = citations[evIndex];
@@ -179,11 +179,12 @@ function selectSentences(
       const text = sentences[sentenceIndex];
       const score = sentenceScore(text, terms);
       if (score <= 0) continue;
-      candidates.push({ text, citation, score, evIndex, sentenceIndex });
+      const priority = priorityTerms.reduce((sum, term) => sum + (norm(text).includes(norm(term)) ? 1 : 0), 0);
+      candidates.push({ text, citation, score, evIndex, sentenceIndex, priority });
     }
   }
 
-  candidates.sort((a, b) => b.score - a.score || a.evIndex - b.evIndex || a.sentenceIndex - b.sentenceIndex);
+  candidates.sort((a, b) => b.priority - a.priority || b.score - a.score || a.sentenceIndex - b.sentenceIndex || a.evIndex - b.evIndex);
   const selected: CitationSentence[] = [];
   for (const candidate of candidates) {
     if (selected.length >= maxSentences) break;
@@ -192,7 +193,6 @@ function selectSentences(
     alreadyUsed.add(key);
     selected.push({ ...candidate, text: truncateAtBoundary(candidate.text, maxQuoteChars) });
   }
-  selected.sort((a, b) => citations.indexOf(a.citation) - citations.indexOf(b.citation));
   return selected;
 }
 
@@ -311,15 +311,19 @@ function pruneEvidenceForSynthesis(query: string, evidence: RecallEvidence[], ma
   const usedSentences = new Set<string>();
   const keptInOriginalOrder = kept.sort((a, b) => a.index - b.index);
   for (const spec of sectionSpecs(shape)) {
-    const candidates: Array<{ keptIndex: number; score: number; sentenceIndex: number; text: string }> = [];
+    const candidates: Array<{ keptIndex: number; score: number; sentenceIndex: number; text: string; priority: number }> = [];
     for (let keptIndex = 0; keptIndex < keptInOriginalOrder.length; keptIndex++) {
       const sentences = splitSentences(keptInOriginalOrder[keptIndex].ev.quote);
       for (let sentenceIndex = 0; sentenceIndex < sentences.length; sentenceIndex++) {
         const score = sentenceScore(sentences[sentenceIndex], spec.terms);
-        if (score > 0) candidates.push({ keptIndex, score, sentenceIndex, text: sentences[sentenceIndex] });
+        if (score > 0) {
+          const priority = ['later', 'became', 'module', 'rides on', 'on top', 'base rail', 'current target']
+            .reduce((sum, term) => sum + (norm(sentences[sentenceIndex]).includes(norm(term)) ? 1 : 0), 0);
+          candidates.push({ keptIndex, score, sentenceIndex, text: sentences[sentenceIndex], priority });
+        }
       }
     }
-    candidates.sort((a, b) => b.score - a.score || a.keptIndex - b.keptIndex || a.sentenceIndex - b.sentenceIndex);
+    candidates.sort((a, b) => b.priority - a.priority || b.score - a.score || a.sentenceIndex - b.sentenceIndex || a.keptIndex - b.keptIndex);
     let selectedForSection = 0;
     for (const candidate of candidates) {
       if (selectedForSection >= (spec.maxSentences ?? 2)) break;
@@ -371,7 +375,7 @@ function cleanClauseFragment(text: string): string {
 }
 
 function hasSentenceTerminal(fragment: string): boolean {
-  return /[.!?][\]\)"'”’]*$/.test(fragment.trim());
+  return /[.!?][\]")'”’]*$/.test(fragment.trim());
 }
 
 function looksLikeSentence(fragment: string): boolean {
@@ -404,10 +408,14 @@ function joinClusterText(sentences: CitationSentence[]): string {
   const rawFragments = sentences.map(sentence => sentence.text.trim()).filter(Boolean);
   if (rawFragments.length <= 1) return cleanSentenceFragment(rawFragments[0] ?? '');
 
-  // Whole-sentence clusters read better as short prose, not semicolon chains.
-  // Clause clusters (notably supplement-stack lists) read better as comma lists.
-  if (rawFragments.some(looksLikeSentence)) return rawFragments.map(renderSentenceFragment).filter(Boolean).join(' ');
-  return naturalJoin(rawFragments.map(cleanClauseFragment).filter(Boolean), ', ');
+  const ordered = rawFragments.slice().sort((a, b) => {
+    const ap = ['later', 'became', 'module', 'rides on', 'on top', 'base rail', 'current target'].reduce((sum, term) => sum + (norm(a).includes(norm(term)) ? 1 : 0), 0);
+    const bp = ['later', 'became', 'module', 'rides on', 'on top', 'base rail', 'current target'].reduce((sum, term) => sum + (norm(b).includes(norm(term)) ? 1 : 0), 0);
+    return bp - ap;
+  });
+
+  if (ordered.some(looksLikeSentence)) return ordered.map(renderSentenceFragment).filter(Boolean).join(' ');
+  return naturalJoin(ordered.map(cleanClauseFragment).filter(Boolean), ', ');
 }
 
 function citedCluster(sentences: CitationSentence[]): string {
