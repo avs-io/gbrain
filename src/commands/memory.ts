@@ -5,6 +5,7 @@ import { createRequire } from 'module';
 import { configDir } from '../core/config.ts';
 import { routeTypedMemory } from '../core/memory/typed-memory-router.ts';
 import { loadContextPackV2, type GBrainContextPackMode } from '../core/memory/context-pack.ts';
+import { buildDeterministicPersonalContextPack, validatePersonalContextPack } from '../core/context/personal-pack.ts';
 import { GBRAIN_NAMESPACES, GBRAIN_PRIVACY_LEVELS, GBRAIN_SENSITIVITY_LEVELS, type GBrainNamespace, type GBrainPrivacy, type GBrainSensitivity } from '../core/memory/namespace-policy.ts';
 import { buildRadarReport, scoreRadarCandidates } from '../core/memory/radar.ts';
 import { reduceReviewJsonlToProposalPacket } from '../core/memory/reducer-bridge.ts';
@@ -12,7 +13,7 @@ import { loadScoutInputs, runScoutDryRun, validateScoutObservation, validateScou
 
 export type MemoryProposalCommandResult = {
   ok: boolean;
-  action: 'validate' | 'enqueue' | 'list' | 'export' | 'reduce' | 'route' | 'surface' | 'context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list';
+  action: 'validate' | 'enqueue' | 'list' | 'export' | 'reduce' | 'route' | 'surface' | 'context-pack' | 'personal-context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list';
   dryRun?: boolean;
   queued?: boolean;
   duplicate?: boolean;
@@ -408,6 +409,16 @@ function loadScoutObservationsForRadar(inputPath: string): ScoutObservation[] {
   return values as ScoutObservation[];
 }
 
+function collectRepeatedFlags(args: string[], flag: string): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] !== flag) continue;
+    const value = args[i + 1];
+    if (value && !value.startsWith('--')) out.push(value);
+  }
+  return out;
+}
+
 export async function runMemory(args: string[]): Promise<void> {
   const group = args[0];
   const sub = args[1];
@@ -455,6 +466,38 @@ export async function runMemory(args: string[]): Promise<void> {
     else if (hasFlag(subArgs, '--compact')) printContextPackCompactHuman(pack);
     else printContextPackHuman(pack);
     if (pack.status !== 'hit') process.exit(1);
+    return;
+  }
+
+  if (group === 'personal' && sub === 'context-pack') {
+    const subArgs = args.slice(2);
+    const facts = collectRepeatedFlags(subArgs, '--fact');
+    const preferences = collectRepeatedFlags(subArgs, '--preference');
+    const inferences = collectRepeatedFlags(subArgs, '--inference');
+    const evidence = collectRepeatedFlags(subArgs, '--evidence');
+    const pack = buildDeterministicPersonalContextPack({
+      profile: 'aditya',
+      task: (flagValue(subArgs, '--task') as any) || 'memory_answer',
+      subject: flagValue(subArgs, '--subject') || flagValue(subArgs, '--topic') || '',
+      generatedAt: flagValue(subArgs, '--generated-at') || new Date(),
+      facts,
+      preferences,
+      inferences,
+      evidence: evidence.map(span_id => ({ span_id, quote: span_id })),
+    });
+    const errors = validatePersonalContextPack(pack);
+    const ok = errors.length === 0;
+    if (hasFlag(subArgs, '--json')) printJson({ ok, action: 'personal-context-pack', ...pack, errors: ok ? undefined : errors });
+    else {
+      console.log(`${ok ? 'PASS' : 'FAIL'} personal context pack: ${pack.profile}/${pack.task}`);
+      console.log(`subject: ${pack.subject}`);
+      for (const section of Object.entries(pack.sections)) {
+        const [name, items] = section as [string, any[]];
+        console.log(`- ${name}: ${items.length}`);
+      }
+      if (!ok) console.log(`errors: ${errors.join('; ')}`);
+    }
+    if (!ok) process.exit(1);
     return;
   }
 
@@ -596,6 +639,41 @@ export async function runMemory(args: string[]): Promise<void> {
     console.error(`Unknown memory radar subcommand: ${action}`);
     printHelp();
     process.exit(1);
+  }
+
+  if (group === 'personal') {
+    const subArgs = args.slice(1);
+    const subcommand = subArgs[0];
+    if (subcommand !== 'context-pack') {
+      console.error(`Unknown personal subcommand: ${subcommand || '(missing)'}`);
+      printHelp();
+      process.exit(1);
+    }
+    const task = (flagValue(subArgs, '--task') || 'memory_answer') as any;
+    const evidenceSpans = collectRepeatedFlags(subArgs, '--evidence');
+    const pack = buildDeterministicPersonalContextPack({
+      profile: 'aditya',
+      task,
+      subject: flagValue(subArgs, '--subject') || flagValue(subArgs, '--topic') || '',
+      generatedAt: flagValue(subArgs, '--generated-at') || new Date(),
+      facts: collectRepeatedFlags(subArgs, '--fact'),
+      preferences: collectRepeatedFlags(subArgs, '--preference'),
+      inferences: collectRepeatedFlags(subArgs, '--inference'),
+      evidence: evidenceSpans.map(span_id => ({ span_id, quote: span_id })),
+    });
+    const errors = validatePersonalContextPack(pack);
+    const ok = errors.length === 0;
+    if (hasFlag(subArgs, '--json')) printJson({ ok, action: 'personal-context-pack', ...pack, errors: ok ? undefined : errors });
+    else {
+      console.log(`${ok ? 'PASS' : 'FAIL'} personal context pack: ${pack.profile}/${pack.task}`);
+      console.log(`subject: ${pack.subject}`);
+      for (const [name, items] of Object.entries(pack.sections)) console.log(`- ${name}: ${(items as any[]).length}`);
+      if (pack.evidence_index.length > 0) console.log(`evidence_index: ${pack.evidence_index.map(ev => ev.span_id).join(', ')}`);
+      if (pack.warnings.length > 0) console.log(`warnings: ${pack.warnings.join('; ')}`);
+      if (!ok) console.log(`errors: ${errors.join('; ')}`);
+    }
+    if (!ok) process.exit(1);
+    return;
   }
 
   if (group !== 'proposals') {
@@ -823,6 +901,7 @@ function printHelp(): void {
   console.log(`gbrain memory route --query "..." [--context "..."] [--context-file path] [--limit 8] [--include-high] [--json]
 gbrain memory surface --query "..." [--context "..."] [--context-file path] [--limit 8] [--enqueue] [--dry-run|--yes] [--json]
 gbrain memory context-pack --mode <daily|meeting|decision|project> --query "..." [--allowed-namespaces world,ventures] [--max-privacy internal] [--max-sensitivity medium] [--limit 8] [--compact] [--json]
+gbrain personal context-pack --profile aditya --task <meeting_brief|opportunity_eval|strategy_review|memory_answer> --topic "..." [--evidence gbs1:...] [--fact "..."] [--preference "..."] [--inference "..."] [--json]
 gbrain memory scout validate --recipe <recipe.json> [--observations <observations.json>] [--json]
 gbrain memory scout dry-run --recipe <recipe.json> --observations <observations.json> [--output <report.json>] [--json]
 gbrain memory radar score --input <scout-dry-run-report.json> [--output <radar-report.json>] [--json]
