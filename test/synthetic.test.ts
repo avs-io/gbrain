@@ -16,12 +16,19 @@ const validRecord = {
 };
 
 const validCase = {
+  id: 'synq-1',
+  seed_source_ids: ['src-1'],
   seed_evidence_span_ids: ['gbs1:span-1'],
   query: 'What happened?',
-  query_shape: 'single_span_recall',
+  query_shape: 'exact_fact',
+  topic: 'topic',
+  claim: 'claim',
   expected_claim_ids: ['claim-1'],
   expected_abstain: false,
   hard_negative: false,
+  eval_only: true as const,
+  training_only: false as const,
+  eligible_for_memory: false as const,
 };
 
 describe('synthetic validators', () => {

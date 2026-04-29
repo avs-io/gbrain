@@ -1,4 +1,4 @@
-import { SYNTHETIC_TYPES, type SyntheticQueryCase, type SyntheticRecord, type TrustScope } from './types.ts';
+import { SYNTHETIC_TYPES, SYNTHETIC_QUERY_SHAPES, type SyntheticQueryCase, type SyntheticRecord, type TrustScope } from './types.ts';
 
 export interface ValidationIssue { path: string; message: string; }
 
@@ -26,11 +26,18 @@ export function validateSyntheticQueryCase(value: unknown): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   if (!value || typeof value !== 'object') return [{ path: '', message: 'case must be an object' }];
   const v = value as Partial<SyntheticQueryCase> & Record<string, unknown>;
+  if (typeof v.id !== 'string' || !v.id.trim()) issues.push({ path: 'id', message: 'required string' });
+  if (!isStringArray(v.seed_source_ids)) issues.push({ path: 'seed_source_ids', message: 'required string[]' });
+  if (v.seed_source_ids?.some(id => id.startsWith('syn:'))) issues.push({ path: 'seed_source_ids', message: 'synthetic ids are not allowed' });
   if (!isStringArray(v.seed_evidence_span_ids)) issues.push({ path: 'seed_evidence_span_ids', message: 'required string[]' });
+  if (v.seed_evidence_span_ids?.some(id => !id.startsWith('gbs1:'))) issues.push({ path: 'seed_evidence_span_ids', message: 'must contain real gbs1 ids' });
   if (typeof v.query !== 'string' || !v.query.trim()) issues.push({ path: 'query', message: 'required string' });
-  if (typeof v.query_shape !== 'string' || !v.query_shape.trim()) issues.push({ path: 'query_shape', message: 'required string' });
+  if (typeof v.query_shape !== 'string' || !SYNTHETIC_QUERY_SHAPES.includes(v.query_shape as any)) issues.push({ path: 'query_shape', message: `must be one of ${SYNTHETIC_QUERY_SHAPES.join(', ')}` });
   if (!isStringArray(v.expected_claim_ids)) issues.push({ path: 'expected_claim_ids', message: 'required string[]' });
   if (typeof v.expected_abstain !== 'boolean') issues.push({ path: 'expected_abstain', message: 'required boolean' });
+  if (typeof v.eval_only !== 'boolean' || v.eval_only !== true) issues.push({ path: 'eval_only', message: 'must be true' });
+  if (typeof v.training_only !== 'boolean' || v.training_only !== false) issues.push({ path: 'training_only', message: 'must be false' });
+  if (typeof v.eligible_for_memory !== 'boolean' || v.eligible_for_memory !== false) issues.push({ path: 'eligible_for_memory', message: 'must be false' });
   if (v.hard_negative !== undefined && typeof v.hard_negative !== 'boolean') issues.push({ path: 'hard_negative', message: 'must be boolean when present' });
   return issues;
 }
