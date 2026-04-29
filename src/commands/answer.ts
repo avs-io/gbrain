@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import type { BrainEngine } from '../core/engine.ts';
 import { recallEvidence, type RecallResult } from '../core/evidence/recall.ts';
 import { synthesizeAnswerFromRecall, type AnswerSynthesisResult } from '../core/evidence/answer-synthesis.ts';
+import { buildDeterministicAnswerEnvelope, type AnswerEnvelope } from '../core/answer/index.ts';
 
 interface ParsedFlags {
   queryParts: string[];
@@ -13,6 +14,7 @@ interface ParsedFlags {
   fromRecallJson?: string;
   maxEvidence: number;
   maxQuoteChars: number;
+  synthesis: 'legacy' | 'deterministic-v2';
 }
 
 function printHelp(): void {
@@ -21,9 +23,11 @@ function printHelp(): void {
 USAGE
   gbrain answer <query> [--json] [--limit N] [--before N] [--after N] [--source-id id]
   gbrain answer --from-recall-json <path|-> [--json] [--max-evidence N] [--max-quote-chars N]
+  gbrain answer --from-recall-json <path|-> --synthesis deterministic-v2 --json
 
 NOTES
   Answer synthesis is deterministic and bounded. It only restates exact gbs1 source windows.
+  The default renderer is unchanged; --synthesis deterministic-v2 emits the new AnswerEnvelope JSON shape.
   If recall abstains or no exact spans are supplied, answer synthesis abstains too.
 `);
 }
@@ -47,7 +51,7 @@ function parsePositiveInt(value: string, flag: string): number {
 }
 
 function parseArgs(args: string[]): ParsedFlags {
-  const flags: ParsedFlags = { queryParts: [], json: false, limit: 5, before: 2, after: 2, maxEvidence: 4, maxQuoteChars: 420 };
+  const flags: ParsedFlags = { queryParts: [], json: false, limit: 5, before: 2, after: 2, maxEvidence: 4, maxQuoteChars: 420, synthesis: 'legacy' };
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (arg === '--json') flags.json = true;
@@ -66,6 +70,16 @@ function parseArgs(args: string[]): ParsedFlags {
     else if (arg.startsWith('--max-evidence=')) flags.maxEvidence = parsePositiveInt(arg.slice('--max-evidence='.length), '--max-evidence');
     else if (arg === '--max-quote-chars') flags.maxQuoteChars = parsePositiveInt(needValue(args, ++i, arg), arg);
     else if (arg.startsWith('--max-quote-chars=')) flags.maxQuoteChars = parsePositiveInt(arg.slice('--max-quote-chars='.length), '--max-quote-chars');
+    else if (arg === '--synthesis') {
+      const value = needValue(args, ++i, arg);
+      if (value !== 'deterministic-v2') throw new Error(`Unsupported --synthesis: ${value}`);
+      flags.synthesis = value;
+    }
+    else if (arg.startsWith('--synthesis=')) {
+      const value = arg.slice('--synthesis='.length);
+      if (value !== 'deterministic-v2') throw new Error(`Unsupported --synthesis: ${value}`);
+      flags.synthesis = value;
+    }
     else if (arg.startsWith('-')) throw new Error(`Unknown option: ${arg}`);
     else flags.queryParts.push(arg);
   }
@@ -100,6 +114,20 @@ function formatHuman(result: AnswerSynthesisResult): string {
   return lines.join('\n');
 }
 
+function formatEnvelopeHuman(result: AnswerEnvelope): string {
+  if (result.status === 'abstain') {
+    const warnings = result.warnings.length ? `\nwarnings: ${result.warnings.join('; ')}` : '';
+    return `ABSTAIN: no exact source-backed AnswerEnvelope for "${result.query}".${warnings}`;
+  }
+  if (result.status === 'invalid') return `INVALID: ${result.validation.errors.join('; ')}`;
+  const lines = [result.answer, '', 'Citations:'];
+  for (const c of result.citations) {
+    lines.push(`- [${c.label}] ${c.id} quote_hash=${c.quoteHash ?? ''}`);
+  }
+  if (result.warnings.length) lines.push('', `warnings: ${result.warnings.join('; ')}`);
+  return lines.join('\n');
+}
+
 export async function runAnswerCommand(engine: BrainEngine | null, args: string[]): Promise<void> {
   if (args.length === 0 || args.includes('--help') || args.includes('-h')) {
     printHelp();
@@ -120,6 +148,14 @@ export async function runAnswerCommand(engine: BrainEngine | null, args: string[
       after: flags.after,
       sourceId: flags.sourceId,
     });
+  }
+
+  if (flags.synthesis === 'deterministic-v2') {
+    const result = buildDeterministicAnswerEnvelope(recall, { maxEvidence: flags.maxEvidence, maxQuoteChars: flags.maxQuoteChars });
+    if (flags.json) console.log(JSON.stringify(result, null, 2));
+    else console.log(formatEnvelopeHuman(result));
+    if (result.status === 'abstain' || result.status === 'invalid') process.exitCode = result.status === 'abstain' ? 2 : 1;
+    return;
   }
 
   const result = synthesizeAnswerFromRecall(recall, { maxEvidence: flags.maxEvidence, maxQuoteChars: flags.maxQuoteChars });
