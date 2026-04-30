@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import {
@@ -10,6 +10,14 @@ import {
   validateSourceTargetsFromYaml,
   validateTopicTracksYaml,
 } from '../core/ops/kernel.ts';
+import {
+  appendTopicCandidateExtractionArtifact,
+  extractTopicCandidatesFromScout,
+  extractTopicCandidatesFromSourceSpans,
+  readTopicExtractionInputFile,
+  validateTopicCandidateExtractionReport,
+} from '../core/topics/extractor.ts';
+
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
   if (ix >= 0 && args[ix + 1] && !args[ix + 1].startsWith('--')) return args[ix + 1];
@@ -24,7 +32,28 @@ function registryPath(args: string[]): string { return flagValue(args, '--file')
 export async function runTopicsCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, and public source target commands. Public P3/world only; WorkItem creation never performs live web fetching.`);
+    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, and review-only candidate extraction. Public P3/world only; WorkItem creation never performs live web fetching.`);
+     return;
+   }
+
+  if (sub === 'extract') {
+    const topic = flagValue(rest, '--topic') || rest.find(a => !a.startsWith('--'));
+    if (!topic) throw new Error('gbrain topics extract requires --topic <id>');
+    const from = flagValue(rest, '--from-source-spans') || flagValue(rest, '--from-spans') || flagValue(rest, '--from-scout-report') || flagValue(rest, '--from-run');
+    if (!from) throw new Error('gbrain topics extract requires --from-source-spans <file> or --from-scout-report <file>');
+    const input = readTopicExtractionInputFile(from);
+    const report = input.scout_report
+      ? extractTopicCandidatesFromScout(input.scout_report, { topic_id: topic })
+      : extractTopicCandidatesFromSourceSpans({ topic_id: topic, source_items: input.source_items, source_spans: input.source_spans || [] });
+    const errors = validateTopicCandidateExtractionReport(report);
+    const out = flagValue(rest, '--out');
+    if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+    let stored_at: string | undefined;
+    if (!hasFlag(rest, '--no-store') && !hasFlag(rest, '--dry-run')) stored_at = appendTopicCandidateExtractionArtifact(report, flagValue(rest, '--artifact-store'));
+    const payload = { ok: errors.length === 0, schema: 'gbrain.topics.extract.v1', errors, stored_at, report };
+    if (hasFlag(rest, '--json') || out) printJson(payload);
+    else console.log(`${report.topic_id}\tclaims=${report.topic_claims.length}\tentities=${report.topic_entities.length}\tevents=${report.topic_events.length}\tproblem_signals=${report.topic_problem_signals.length}\tunsupported=${report.diagnostics.unsupported_candidates}\tstored_at=${stored_at || 'none'}`);
+    if (errors.length) process.exitCode = 1;
     return;
   }
 
