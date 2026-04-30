@@ -7,11 +7,13 @@ import {
   buildWorkPack,
   claimWorkItem,
   completeWorkItem,
+  dispatchWorkItem,
   enqueueWorkPacket,
   initOpsStore,
   listPrograms,
   listWorkItems,
   opsStatus,
+  reconcileOpenClawTasks,
   opsStorePath,
   renderWorkPackMarkdown,
   renderOpsDashboardMarkdown,
@@ -44,6 +46,8 @@ gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
 gbrain ops work pack --id <id> [--out <path>] [--json] [--store <path>]
 gbrain ops work complete --id <id> --completion <completion.json> [--store <path>] [--json]
+gbrain ops dispatch --id <work_item_id> --dry-run --json [--store <path>] [--provider <p>] [--model <m>] [--openclaw-task-id <id>] [--session-key <key>]
+gbrain ops reconcile --fixture <openclaw-tasks.json> --json [--store <path>]
 gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
 gbrain ops audit --json [--store <path>]
 
@@ -104,6 +108,39 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
 
   if (sub === 'work') {
     await runWork(rest);
+    return;
+  }
+
+  if (sub === 'dispatch') {
+    const id = flagValue(rest, '--id');
+    if (!id) throw new Error('gbrain ops dispatch requires --id <work_item_id>');
+    if (hasFlag(rest, '--live')) throw new Error('live OpenClaw dispatch is not enabled in this build; use --dry-run');
+    if (!hasFlag(rest, '--dry-run')) throw new Error('gbrain ops dispatch requires explicit --dry-run');
+    const result = dispatchWorkItem(id, {
+      path: storePath(rest),
+      dryRun: true,
+      allowLive: false,
+      workerId: flagValue(rest, '--worker'),
+      provider: flagValue(rest, '--provider'),
+      model: flagValue(rest, '--model'),
+      openclawTaskId: flagValue(rest, '--openclaw-task-id'),
+      sessionKey: flagValue(rest, '--session-key'),
+      sessionId: flagValue(rest, '--session-id'),
+      simulateFailure: hasFlag(rest, '--simulate-failure'),
+      failureMessage: flagValue(rest, '--failure-message'),
+    });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.dispatch.v1' });
+    else console.log(`${result.work_item.id}\t${result.run.runtime}\t${result.packet_path}`);
+    return;
+  }
+
+  if (sub === 'reconcile') {
+    const fixture = flagValue(rest, '--fixture');
+    if (!fixture) throw new Error('gbrain ops reconcile requires --fixture <openclaw-tasks.json>');
+    const input = JSON.parse(readFileSync(fixture, 'utf8'));
+    const result = reconcileOpenClawTasks(input, { path: storePath(rest) });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.reconcile.v1' });
+    else console.log(`reconciled ${result.updates.length}/${result.observed_count} observed OpenClaw tasks`);
     return;
   }
 

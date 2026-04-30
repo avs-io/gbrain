@@ -8,6 +8,7 @@ export const OPS_KERNEL_SCHEMA = 'gbrain.ops.kernel.v1';
 export const OPS_EVENT_SCHEMA = 'gbrain.ops.event.v1';
 export const OPS_COMPLETION_SCHEMA = 'gbrain.ops.completion.v1';
 export const OPS_WORK_PACK_SCHEMA = 'gbrain.ops.work_pack.v1';
+export const OPS_DISPATCH_PACKET_SCHEMA = 'gbrain.ops.openclaw_dispatch_packet.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -201,7 +202,7 @@ export interface OpsCompletion {
 }
 
 export interface OpsAuditAlert {
-  kind: 'no_idle' | 'blocked_work' | 'waiting_human' | 'stale_active_lease';
+  kind: 'no_idle' | 'blocked_work' | 'waiting_human' | 'stale_active_lease' | 'dispatch_failed' | 'completion_missing';
   severity: 'info' | 'amber' | 'red';
   message: string;
   work_item_ids?: string[];
@@ -229,6 +230,28 @@ export interface OpsWorkPack {
     program_autonomy?: Record<string, unknown>;
   };
   completion_contract: ReturnType<typeof completionContract>;
+}
+
+export type OpenClawDispatchRuntime = 'openclaw_subagent' | 'openclaw_acp_codex' | 'local_script_placeholder';
+
+export interface OpsDispatchPacket {
+  schema: typeof OPS_DISPATCH_PACKET_SCHEMA;
+  id: string;
+  generated_at: string;
+  dry_run: boolean;
+  live_dispatch_enabled: boolean;
+  work_item_id: string;
+  run_id: string;
+  lease_id?: string;
+  worker_kind: WorkerKind;
+  runtime: OpenClawDispatchRuntime;
+  provider: string;
+  model?: string;
+  work_pack_path: string;
+  command_payload: Record<string, unknown>;
+  openclaw_task_id?: string;
+  session_key?: string;
+  session_id?: string;
 }
 
 type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
@@ -719,6 +742,215 @@ function completionContract(item?: OpsWorkItem) {
   };
 }
 
+export interface OpsDispatchOptions extends OpsStoreOptions {
+  dryRun?: boolean;
+  allowLive?: boolean;
+  workerId?: string;
+  leaseMinutes?: number;
+  provider?: string;
+  model?: string;
+  openclawTaskId?: string;
+  sessionKey?: string;
+  sessionId?: string;
+  simulateFailure?: boolean;
+  failureMessage?: string;
+}
+
+export interface OpsDispatchResult {
+  ok: true;
+  path: string;
+  work_item: OpsWorkItem;
+  lease?: OpsLease;
+  run: OpsWorkRun;
+  dispatch_packet: OpsDispatchPacket;
+  packet_path: string;
+  work_pack_path: string;
+  interrupt?: OpsInterrupt;
+  artifact: OpsArtifact;
+}
+
+export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): OpsDispatchResult {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const now = opts.now || new Date();
+  const at = nowIso(now);
+  const dryRun = opts.dryRun !== false;
+  const live = opts.allowLive === true && dryRun === false;
+  let state = readOpsState(path);
+  let item = state.work_items.find(w => w.id === id);
+  if (!item) throw new Error(`work item not found: ${id}`);
+  if (!['ready', 'running', 'leased'].includes(item.state)) throw new Error(`work item ${id} is not dispatchable (state=${item.state})`);
+
+  let claimed: ReturnType<typeof claimWorkItem> | undefined;
+  let lease: OpsLease | undefined;
+  let run: OpsWorkRun | undefined;
+  if (item.state === 'ready') {
+    const initialPlan = openClawRuntimePlan(item, opts);
+    claimed = claimWorkItem(id, opts.workerId || `openclaw-dispatch-${initialPlan.runtime}`, { path, now, leaseMinutes: opts.leaseMinutes || 60, runtime: initialPlan.runtime, runStatus: 'starting' });
+    item = claimed.work_item;
+    lease = claimed.lease;
+    run = claimed.run;
+  } else {
+    lease = state.leases.find(l => l.work_item_id === id && l.lease_status === 'active');
+    run = (lease?.run_id ? state.runs.find(r => r.id === lease?.run_id) : undefined) || state.runs.filter(r => r.work_item_id === id).at(-1);
+    if (!run) throw new Error(`work item ${id} has no run to dispatch`);
+  }
+
+  state = readOpsState(path);
+  item = state.work_items.find(w => w.id === id) || item;
+  run = state.runs.find(r => r.id === run!.id) || run;
+  const plan = openClawRuntimePlan(item, opts);
+  const workPackPath = persistWorkPackMarkdown(path, buildWorkPack(id, { path, now }));
+  const packet: OpsDispatchPacket = {
+    schema: OPS_DISPATCH_PACKET_SCHEMA,
+    id: hashId('dispatch', { work_item_id: id, run_id: run.id, runtime: plan.runtime }),
+    generated_at: at,
+    dry_run: dryRun,
+    live_dispatch_enabled: live,
+    work_item_id: id,
+    run_id: run.id,
+    lease_id: lease?.id,
+    worker_kind: item.worker_kind,
+    runtime: plan.runtime,
+    provider: plan.provider,
+    model: plan.model,
+    work_pack_path: workPackPath,
+    command_payload: plan.command_payload,
+    openclaw_task_id: opts.openclawTaskId,
+    session_key: opts.sessionKey,
+    session_id: opts.sessionId,
+  };
+  const packetPath = persistDispatchPacket(path, packet);
+
+  if (opts.simulateFailure) {
+    const message = opts.failureMessage || 'simulated OpenClaw dispatch failure';
+    const failedRun: OpsWorkRun = { ...run, runtime: plan.runtime, provider: plan.provider, model: plan.model, openclaw_task_id: opts.openclawTaskId || run.openclaw_task_id, session_key: opts.sessionKey || run.session_key, session_id: opts.sessionId || run.session_id, input_pack_path: workPackPath, output_path: packetPath, status: 'failed', ended_at: at, last_event_at: at, error: message };
+    appendEvent(path, 'run_upsert', failedRun, now);
+    if (lease) appendEvent(path, 'lease_upsert', { ...lease, lease_status: 'released', released_at: at, heartbeat_at: at }, now);
+    const blocked: OpsWorkItem = { ...item, state: 'blocked', updated_at: at, last_state_reason: `dispatch failed: ${message}` };
+    appendEvent(path, 'work_upsert', blocked, now);
+    const interrupt = dispatchFailureInterrupt(blocked, failedRun, message, now);
+    appendEvent(path, 'interrupt_upsert', interrupt, now);
+    const artifact = dispatchArtifact(packet, packetPath, blocked.id, failedRun.id, now, true);
+    appendEvent(path, 'artifact_upsert', artifact, now);
+    return { ok: true, path, work_item: blocked, lease, run: failedRun, dispatch_packet: packet, packet_path: packetPath, work_pack_path: workPackPath, interrupt, artifact };
+  }
+
+  const updatedRun: OpsWorkRun = {
+    ...run,
+    runtime: plan.runtime,
+    provider: plan.provider,
+    model: plan.model,
+    openclaw_task_id: opts.openclawTaskId || run.openclaw_task_id,
+    session_key: opts.sessionKey || run.session_key,
+    session_id: opts.sessionId || run.session_id,
+    input_pack_path: workPackPath,
+    output_path: packetPath,
+    status: 'running',
+    last_event_at: at,
+  };
+  appendEvent(path, 'run_upsert', updatedRun, now);
+  const artifact = dispatchArtifact(packet, packetPath, item.id, updatedRun.id, now, false);
+  appendEvent(path, 'artifact_upsert', artifact, now);
+  return { ok: true, path, work_item: item, lease, run: updatedRun, dispatch_packet: packet, packet_path: packetPath, work_pack_path: workPackPath, artifact };
+}
+
+function openClawRuntimePlan(item: OpsWorkItem, opts: OpsDispatchOptions): { runtime: OpenClawDispatchRuntime; provider: string; model?: string; command_payload: Record<string, unknown> } {
+  const kind = String(item.worker_kind || '').toLowerCase();
+  const budget = object(item.budget);
+  const model = opts.model || (typeof budget.model === 'string' ? budget.model : undefined);
+  if (['subagent', 'native_subagent', 'openclaw_subagent'].includes(kind)) {
+    const provider = opts.provider || 'openclaw';
+    return {
+      runtime: 'openclaw_subagent',
+      provider,
+      model: model || 'native-subagent',
+      command_payload: {
+        tool: 'sessions_spawn',
+        mode: opts.dryRun === false && opts.allowLive === true ? 'live_opt_in' : 'dry_run',
+        label: item.id,
+        task: item.description,
+        work_pack: `ops/work-packs/${sanitizePathPart(item.id)}.md`,
+      },
+    };
+  }
+  if (['acp_codex', 'codex', 'acp', 'claude_code'].includes(kind)) {
+    const provider = opts.provider || (kind === 'claude_code' ? 'claude-code' : 'codex');
+    return {
+      runtime: 'openclaw_acp_codex',
+      provider,
+      model: model || (provider === 'claude-code' ? 'claude-code/default' : 'openai-codex/default'),
+      command_payload: {
+        tool: 'acp_session',
+        mode: opts.dryRun === false && opts.allowLive === true ? 'live_opt_in' : 'dry_run',
+        runtime: provider,
+        work_item_id: item.id,
+        prompt_file: `ops/work-packs/${sanitizePathPart(item.id)}.md`,
+      },
+    };
+  }
+  const provider = opts.provider || (typeof budget.provider === 'string' ? budget.provider : 'local');
+  return {
+    runtime: 'local_script_placeholder',
+    provider,
+    model,
+    command_payload: {
+      tool: 'local_script_placeholder',
+      mode: 'dry_run',
+      work_item_id: item.id,
+      command: `gbrain ops work pack --id ${shellQuote(item.id)}`,
+    },
+  };
+}
+
+function persistWorkPackMarkdown(storePath: string, pack: OpsWorkPack): string {
+  const dir = join(dirname(storePath), 'work-packs');
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, `${sanitizePathPart(pack.work_item.id)}.md`);
+  writeFileSync(path, renderWorkPackMarkdown(pack) + '\n', { mode: 0o600 });
+  return path;
+}
+
+function persistDispatchPacket(storePath: string, packet: OpsDispatchPacket): string {
+  const dir = join(dirname(storePath), 'runs', sanitizePathPart(packet.run_id));
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'dispatch.json');
+  writeFileSync(path, JSON.stringify(packet, null, 2) + '\n', { mode: 0o600 });
+  return path;
+}
+
+function dispatchArtifact(packet: OpsDispatchPacket, packetPath: string, workItemId: string, runId: string, now: Date, failed: boolean): OpsArtifact {
+  return {
+    id: hashId('artifact', { kind: 'openclaw_dispatch_packet', runId, packetPath }),
+    run_id: runId,
+    work_item_id: workItemId,
+    kind: 'openclaw_dispatch_packet',
+    path: packetPath,
+    summary: failed ? 'OpenClaw dispatch failure packet recorded.' : 'OpenClaw dispatch packet recorded.',
+    metadata: { schema: packet.schema, runtime: packet.runtime, dry_run: packet.dry_run, provider: packet.provider, model: packet.model, openclaw_task_id: packet.openclaw_task_id, session_key: packet.session_key },
+    created_at: nowIso(now),
+  };
+}
+
+function dispatchFailureInterrupt(item: OpsWorkItem, run: OpsWorkRun, message: string, now: Date): OpsInterrupt {
+  return {
+    id: hashId('interrupt', { kind: 'dispatch_failed', work_item_id: item.id, run_id: run.id, message }),
+    severity: 'high',
+    program_id: item.program_id,
+    work_item_id: item.id,
+    title: `OpenClaw dispatch failed for ${item.id}`,
+    body: message,
+    proposed_action: 'Inspect the recorded dispatch packet and unblock or retry the work item.',
+    requires_human: false,
+    status: 'new',
+    created_at: nowIso(now),
+  };
+}
+
+function shellQuote(v: string): string {
+  return `'${v.replace(/'/g, `'"'"'`)}'`;
+}
+
 export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number; runtime?: string; runStatus?: RunStatus } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
@@ -848,6 +1080,150 @@ export function completeWorkItem(id: string, completion: unknown, opts: OpsStore
     }
   }
   return { ok: true, work_item: updatedItem, run: updatedRun, released_lease: released, artifacts, unblocked, completion_path: completionPath };
+}
+
+export interface OpsOpenClawObservedTask {
+  id?: string;
+  task_id?: string;
+  openclaw_task_id?: string;
+  session_key?: string;
+  session_id?: string;
+  run_id?: string;
+  work_item_id?: string;
+  status?: string;
+  state?: string;
+  provider?: string;
+  model?: string;
+  error?: string;
+  completion_json?: unknown;
+  completion?: unknown;
+}
+
+export interface OpsReconcileResult {
+  ok: true;
+  path: string;
+  observed_count: number;
+  updates: Array<{ run_id: string; work_item_id: string; observed_status: string; run_status: RunStatus; completion_accepted: boolean; work_item_state: WorkItemState; alert?: OpsInterrupt }>;
+}
+
+export function reconcileOpenClawTasks(input: unknown, opts: OpsStoreOptions = {}): OpsReconcileResult {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const now = opts.now || new Date();
+  const at = nowIso(now);
+  const observed = normalizeObservedTasks(input);
+  const updates: OpsReconcileResult['updates'] = [];
+
+  for (const task of observed) {
+    const state = readOpsState(path);
+    const run = findRunForObservedTask(state, task);
+    if (!run) continue;
+    const item = state.work_items.find(w => w.id === run.work_item_id);
+    if (!item) continue;
+    const observedStatus = String(task.status || task.state || 'unknown');
+    const mapped = runStatusFromObserved(observedStatus);
+    const completion = task.completion_json ?? task.completion;
+
+    if (mapped === 'succeeded') {
+      const completionErrors = validateCompletion(completion, item);
+      if (completionErrors.length === 0) {
+        const accepted = completeWorkItem(item.id, completion, { path, now });
+        updates.push({ run_id: accepted.run?.id || run.id, work_item_id: item.id, observed_status: observedStatus, run_status: accepted.run?.status || 'succeeded', completion_accepted: true, work_item_state: accepted.work_item.state });
+        continue;
+      }
+      const updatedRun: OpsWorkRun = {
+        ...run,
+        status: 'succeeded',
+        provider: task.provider || run.provider,
+        model: task.model || run.model,
+        openclaw_task_id: task.openclaw_task_id || task.task_id || task.id || run.openclaw_task_id,
+        session_key: task.session_key || run.session_key,
+        session_id: task.session_id || run.session_id,
+        ended_at: at,
+        last_event_at: at,
+        error: `OpenClaw reported success but completion JSON was missing or invalid: ${completionErrors.join('; ')}`,
+      };
+      appendEvent(path, 'run_upsert', updatedRun, now);
+      const interrupt = completionMissingInterrupt(item, updatedRun, updatedRun.error || 'completion missing', now);
+      appendEvent(path, 'interrupt_upsert', interrupt, now);
+      updates.push({ run_id: run.id, work_item_id: item.id, observed_status: observedStatus, run_status: 'succeeded', completion_accepted: false, work_item_state: item.state, alert: interrupt });
+      continue;
+    }
+
+    const terminalFailure = ['failed', 'timed_out', 'lost', 'cancelled'].includes(mapped);
+    const updatedRun: OpsWorkRun = {
+      ...run,
+      status: mapped,
+      provider: task.provider || run.provider,
+      model: task.model || run.model,
+      openclaw_task_id: task.openclaw_task_id || task.task_id || task.id || run.openclaw_task_id,
+      session_key: task.session_key || run.session_key,
+      session_id: task.session_id || run.session_id,
+      ended_at: terminalFailure ? at : run.ended_at,
+      last_event_at: at,
+      error: task.error || run.error,
+    };
+    appendEvent(path, 'run_upsert', updatedRun, now);
+    let workItemState = item.state;
+    let interrupt: OpsInterrupt | undefined;
+    if (terminalFailure) {
+      const failedItem: OpsWorkItem = { ...item, state: mapped === 'cancelled' ? 'cancelled' : 'failed', updated_at: at, last_state_reason: task.error || `OpenClaw task reconciled as ${mapped}` };
+      appendEvent(path, 'work_upsert', failedItem, now);
+      const activeLease = state.leases.find(l => l.work_item_id === item.id && l.lease_status === 'active');
+      if (activeLease) appendEvent(path, 'lease_upsert', { ...activeLease, lease_status: 'released', released_at: at, heartbeat_at: at }, now);
+      workItemState = failedItem.state;
+      interrupt = dispatchFailureInterrupt(failedItem, updatedRun, task.error || `OpenClaw task reconciled as ${mapped}`, now);
+      appendEvent(path, 'interrupt_upsert', interrupt, now);
+    }
+    updates.push({ run_id: run.id, work_item_id: item.id, observed_status: observedStatus, run_status: mapped, completion_accepted: false, work_item_state: workItemState, alert: interrupt });
+  }
+
+  return { ok: true, path, observed_count: observed.length, updates };
+}
+
+function normalizeObservedTasks(input: unknown): OpsOpenClawObservedTask[] {
+  if (Array.isArray(input)) return input.filter(isObject) as OpsOpenClawObservedTask[];
+  if (!isObject(input)) throw new Error('OpenClaw task fixture must be an object or array');
+  if (Array.isArray(input.tasks)) return input.tasks.filter(isObject) as OpsOpenClawObservedTask[];
+  if (isObject(input.task)) return [input.task as OpsOpenClawObservedTask];
+  return [input as OpsOpenClawObservedTask];
+}
+
+function findRunForObservedTask(state: OpsState, task: OpsOpenClawObservedTask): OpsWorkRun | undefined {
+  const taskIds = [task.openclaw_task_id, task.task_id, task.id].filter((v): v is string => typeof v === 'string' && v.length > 0);
+  return state.runs.find(r => task.run_id && r.id === task.run_id)
+    || state.runs.find(r => task.work_item_id && r.work_item_id === task.work_item_id)
+    || state.runs.find(r => !!r.openclaw_task_id && taskIds.includes(r.openclaw_task_id))
+    || state.runs.find(r => !!r.session_key && task.session_key === r.session_key)
+    || state.runs.find(r => !!r.session_id && task.session_id === r.session_id);
+}
+
+function runStatusFromObserved(raw: string): RunStatus {
+  const s = raw.toLowerCase().replace(/[ -]/g, '_');
+  if (['queued', 'pending'].includes(s)) return 'queued';
+  if (['starting', 'dispatching'].includes(s)) return 'starting';
+  if (['running', 'in_progress', 'active'].includes(s)) return 'running';
+  if (['succeeded', 'success', 'completed', 'complete', 'done'].includes(s)) return 'succeeded';
+  if (['failed', 'failure', 'error'].includes(s)) return 'failed';
+  if (['timed_out', 'timeout', 'expired'].includes(s)) return 'timed_out';
+  if (['cancelled', 'canceled'].includes(s)) return 'cancelled';
+  if (['lost', 'missing', 'unknown'].includes(s)) return 'lost';
+  return 'running';
+}
+
+function completionMissingInterrupt(item: OpsWorkItem, run: OpsWorkRun, message: string, now: Date): OpsInterrupt {
+  return {
+    id: hashId('interrupt', { kind: 'completion_missing', work_item_id: item.id, run_id: run.id, message }),
+    severity: 'high',
+    program_id: item.program_id,
+    work_item_id: item.id,
+    title: `Completion JSON missing for ${item.id}`,
+    body: message,
+    proposed_action: 'Recover or submit a valid ops completion JSON before marking work succeeded.',
+    requires_human: false,
+    status: 'new',
+    created_at: nowIso(now),
+  };
 }
 
 function persistCompletionJson(storePath: string, completion: OpsCompletion, runId: string | undefined, workItemId: string): string {
