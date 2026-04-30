@@ -39,6 +39,15 @@ import {
 import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
+import {
+  buildDailyBuildReportSurface,
+  buildMorningBriefSurface,
+  buildWeeklyStrategySynthesisSurface,
+  renderDailyBuildReportMarkdown,
+  renderMorningBriefMarkdown,
+  renderWeeklyStrategyMarkdown,
+  writeBriefingSurface,
+} from '../core/ops/briefing-surfaces.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -68,6 +77,9 @@ gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] 
 gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
 gbrain ops opportunities brief-ready --json [--store <path>] [--limit 5] [--out <surface.json>]
 gbrain ops opportunities feedback <candidate-id> --useful|--not-useful [--reason <text>] --json [--store <path>]
+gbrain ops brief morning --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 5] [--out <surface.json>]
+gbrain ops brief daily-build --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 12] [--out <surface.json>]
+gbrain ops brief weekly-strategy --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 8] [--out <surface.json>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -273,6 +285,32 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       return;
     }
     throw new Error('gbrain ops opportunities supports: radar, brief-ready, feedback');
+  }
+
+  if (sub === 'brief' || sub === 'briefs' || sub === 'surfaces') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    const common = { opsStorePath: storePath(actionArgs), opportunityStorePath: flagValue(actionArgs, '--opportunities-store') || flagValue(actionArgs, '--opportunity-store'), limit: numberFlag(actionArgs, '--limit') };
+    let surface: ReturnType<typeof buildMorningBriefSurface> | ReturnType<typeof buildDailyBuildReportSurface> | ReturnType<typeof buildWeeklyStrategySynthesisSurface>;
+    let markdown: string;
+    if (action === 'morning' || action === 'morning-brief') {
+      surface = buildMorningBriefSurface(common);
+      markdown = renderMorningBriefMarkdown(surface);
+    } else if (action === 'daily-build' || action === 'daily') {
+      surface = buildDailyBuildReportSurface(common);
+      markdown = renderDailyBuildReportMarkdown(surface);
+    } else if (action === 'weekly-strategy' || action === 'weekly') {
+      surface = buildWeeklyStrategySynthesisSurface(common);
+      markdown = renderWeeklyStrategyMarkdown(surface);
+    } else {
+      throw new Error('gbrain ops brief supports: morning, daily-build, weekly-strategy');
+    }
+    const out = flagValue(actionArgs, '--out');
+    if (out) writeBriefingSurface(out, surface);
+    if (hasFlag(actionArgs, '--markdown')) console.log(markdown);
+    else if (hasFlag(actionArgs, '--json') || out) printJson(surface);
+    else console.log(markdown);
+    return;
   }
 
   if (sub === 'dashboard') {
