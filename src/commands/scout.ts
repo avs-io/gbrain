@@ -8,6 +8,7 @@ import {
   scoutReportJson,
   validateScoutRecipe,
 } from '../core/scout/pipeline.ts';
+import { runPublicScout, type ScoutRunDepth } from '../core/scout/runner.ts';
 
 function parseArgs(args: string[]): Record<string, string | boolean | undefined> {
   const out: Record<string, string | boolean | undefined> = {};
@@ -51,7 +52,7 @@ export async function runScoutCommand(_engine: unknown, args: string[]): Promise
   const [sub, ...rest] = args;
   const flags = parseArgs(rest);
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain scout recipes list --json\ngbrain scout recipes get <slug> --json\ngbrain scout recipes validate --file <file> --json\ngbrain scout topics list --json\ngbrain scout plan <slug> --json\ngbrain scout run --recipe <id> --input <sources.json> [--json] [--out <report.json>] [--yes]\ngbrain scout signal --recipe <id> --source-url <url>|--source-title <title> --claim <text> --excerpt <text> [--entity <name>]... [--json] [--out <jsonl>] [--yes]`);
+    console.log(`gbrain scout recipes list --json\ngbrain scout recipes get <slug> --json\ngbrain scout recipes validate --file <file> --json\ngbrain scout topics list --json\ngbrain scout plan <slug> --json\ngbrain scout run <recipe-id>|--recipe <id> [--depth shallow|standard] [--dry-run] [--input <sources.json>] [--json] [--out <report.json>] [--yes]\ngbrain scout signal --recipe <id> --source-url <url>|--source-title <title> --claim <text> --excerpt <text> [--entity <name>]... [--json] [--out <jsonl>] [--yes]`);
     return;
   }
 
@@ -130,40 +131,21 @@ export async function runScoutCommand(_engine: unknown, args: string[]): Promise
   }
 
   if (sub === 'run') {
-    const recipeId = String(flags.recipe || '').trim();
+    const positionalRecipe = rest.find(v => !v.startsWith('--'));
+    const recipeId = String(flags.recipe || positionalRecipe || '').trim();
     const recipe = scoutRecipeById(recipeId);
-    if (!recipe) throw new Error(`Unknown scout recipe: ${recipeId}`);
+    if (!recipe) throw new Error(`Unknown scout recipe: ${recipeId || '<missing>'}`);
     const inputPath = typeof flags.input === 'string' ? flags.input : undefined;
-    if (!inputPath) throw new Error('scout run requires --input <sources.json>');
-    const rawSources = readJsonArrayFile(inputPath);
-    const signals = rawSources.map((source, idx) => {
-      if (typeof source !== 'object' || source === null) throw new Error(`sources[${idx}] must be an object`);
-      return buildScoutSignalFromSource({
-        recipe,
-        source: {
-          source_url: typeof (source as any).source_url === 'string' ? (source as any).source_url : undefined,
-          source_title: typeof (source as any).source_title === 'string' ? (source as any).source_title : undefined,
-          published_at: typeof (source as any).published_at === 'string' ? (source as any).published_at : undefined,
-          claim: String((source as any).claim || '').trim(),
-          excerpt: String((source as any).excerpt || '').trim(),
-          entities: Array.isArray((source as any).entities) ? (source as any).entities.filter((v: unknown): v is string => typeof v === 'string') : undefined,
-        },
-      });
-    });
-    const report = {
-      schema: 'gbrain.scout.run_report.v1',
-      mode: 'review-only',
-      trusted_world_truth: false,
-      recipe,
-      plan: buildScoutQueryPlan(recipe),
-      signal_count: signals.length,
-      signals,
-    };
+    const dryRun = Boolean(flags.dry_run);
+    const depth = flags.depth === 'standard' ? 'standard' : 'shallow' as ScoutRunDepth;
+    if (!dryRun && !inputPath) throw new Error('scout run requires --input <sources.json> unless --dry-run is set');
+    const rawSources = inputPath ? readJsonArrayFile(inputPath) : [];
+    const report = runPublicScout({ recipe, sources: rawSources, depth, dryRun, provider: 'fixture_public_sources' });
     const json = JSON.stringify(report, null, 2);
     const out = typeof flags.out === 'string' ? flags.out : undefined;
     if (out && flags.yes) writeFileSync(out, json + '\n');
     else if (out) console.log(json);
-    console.log(flags.json ? json : `${recipe.slug}\trun\tsignals=${signals.length}`);
+    console.log(flags.json ? json : `${recipe.slug}\trun\tstatus=${report.run_ledger.status}\titems=${report.source_items.length}\tspans=${report.source_spans.length}`);
     return;
   }
 

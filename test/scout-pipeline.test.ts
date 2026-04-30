@@ -10,6 +10,7 @@ import {
   validateScoutRecipe,
 } from '../src/core/scout/pipeline.ts';
 import { runScoutCommand } from '../src/commands/scout.ts';
+import { runPublicScout } from '../src/core/scout/runner.ts';
 
 async function captureStdout(fn: () => Promise<void> | void): Promise<string> {
   const original = console.log;
@@ -116,18 +117,54 @@ describe('scout CLI recipes', () => {
     expect(out.tracks.map((t: any) => t.slug)).toEqual(['sovereign-ai-india', 'agent-memory-systems', 'ai-agent-infra']);
   });
 
-  test('public run composes signals from source array', async () => {
+  test('public run creates source items/spans and records ledger diagnostics', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-scout-run-'));
     const file = join(dir, 'sources.json');
     writeFileSync(file, JSON.stringify([
-      { source_url: 'https://example.com/1', source_title: 'AI infra note', claim: 'agent infra update', excerpt: 'New orchestration infra with eval loops.', entities: ['infra', 'evals'] },
-      { source_title: 'Memory memo', claim: 'memory launch', excerpt: 'A source-grounded recall system for long-running agents.', entities: ['memory'] },
+      { source_url: 'https://example.com/1', source_title: 'AI infra note', claim: 'agent infra update', excerpt: 'New orchestration infra with eval loops.', content: 'Header. New orchestration infra with eval loops. Footer.', entities: ['infra', 'evals'] },
+      { source_url: 'https://example.com/2', source_title: 'Memory memo', claim: 'memory launch', excerpt: 'A source-grounded recall system for long-running agents.', entities: ['memory'] },
     ]), 'utf8');
 
     const out = JSON.parse(await captureStdout(() => runScoutCommand(null, ['run', '--recipe', 'ai-agent-infra', '--input', file, '--json'])));
     expect(out.schema).toBe('gbrain.scout.run_report.v1');
     expect(out.signal_count).toBe(2);
-    expect(out.signals[0].topic).toBe('ai-agent-infra');
-    expect(out.signals[1].source_title).toBe('Memory memo');
+    expect(out.source_items).toHaveLength(2);
+    expect(out.source_spans).toHaveLength(2);
+    expect(out.source_items[0].privacy).toBe('P3_PUBLIC');
+    expect(out.source_spans[0].ref).toStartWith('srcspan1:web:');
+    expect(out.run_ledger.provider).toBe('fixture_public_sources');
+    expect(out.run_ledger.status).toBe('completed');
+    expect(out.run_ledger.query_plan.queries.length).toBeGreaterThan(0);
+    expect(out.run_ledger.diagnostics.source_items_created).toBe(2);
+  });
+
+  test('dry-run positional CLI emits query plan without source ingestion', async () => {
+    const out = JSON.parse(await captureStdout(() => runScoutCommand(null, ['run', 'sovereign-ai-india', '--depth', 'shallow', '--dry-run', '--json'])));
+    expect(out.run_ledger.status).toBe('dry_run');
+    expect(out.run_ledger.dry_run).toBe(true);
+    expect(out.plan.recipe_slug).toBe('sovereign-ai-india');
+    expect(out.source_items).toEqual([]);
+    expect(out.source_spans).toEqual([]);
+  });
+
+  test('public run dedupes URL/content hash and rejects P0/P1/private sources', () => {
+    const recipe = BUILTIN_SCOUT_RECIPES[0]!;
+    const out = runPublicScout({
+      recipe,
+      sources: [
+        { source_url: 'https://example.com/a', source_title: 'IndiaAI', claim: 'IndiaAI compute update', excerpt: 'IndiaAI compute policy update.', content: 'IndiaAI compute policy update.', entities: ['IndiaAI'] },
+        { source_url: 'https://example.com/a', source_title: 'Duplicate URL', claim: 'dup', excerpt: 'different content' },
+        { source_url: 'https://example.com/b', source_title: 'Duplicate content', claim: 'dup', excerpt: 'IndiaAI compute policy update.', content: 'IndiaAI compute policy update.' },
+        { source_url: 'https://example.com/private', source_title: 'Private', claim: 'private', excerpt: 'private', privacy_tier: 'P1_PRIVATE' },
+        { source_url: 'file:///tmp/private.txt', source_title: 'File', claim: 'file', excerpt: 'file' },
+      ],
+    });
+    expect(out.source_items).toHaveLength(1);
+    expect(out.source_spans).toHaveLength(1);
+    expect(out.signal_count).toBe(1);
+    expect(out.run_ledger.status).toBe('completed_with_failures');
+    expect(out.run_ledger.diagnostics.duplicate_sources).toBe(2);
+    expect(out.run_ledger.diagnostics.rejected_sources).toBe(2);
+    expect(out.run_ledger.failures.map(f => f.status)).toEqual(['duplicate', 'duplicate', 'rejected', 'rejected']);
   });
 });
