@@ -42,6 +42,7 @@ import {
   heartbeatTemplateMarkdown,
 } from '../core/ops/liveness.ts';
 import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
+import { readBookmarkDeepRadarInputFile, runBookmarkDeepRadar } from '../core/ops/bookmark-deep-radar.ts';
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
 import {
@@ -79,6 +80,7 @@ gbrain ops topic-tracks list --json [--store <path>]
 gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
 gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
 gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--archive <decisions.jsonl>] [--out <report.json>]
+gbrain ops bookmarks deep-radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--artifact-store <path>] [--out <report.json>]
 gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
 gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
 gbrain ops opportunities brief-ready --json [--store <path>] [--limit 5] [--out <surface.json>]
@@ -230,24 +232,44 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
   if (sub === 'bookmarks') {
     const action = rest[0];
     const actionArgs = rest.slice(1);
-    if (action !== 'radar') throw new Error('gbrain ops bookmarks supports: radar');
-    const input = flagValue(actionArgs, '--input');
-    if (!input) throw new Error('gbrain ops bookmarks radar requires --input <bookmarks.json|bookmarks.md>');
-    const bookmarks = readBookmarkBatchFile(input);
-    const minScore = flagValue(actionArgs, '--surface-min-score');
-    const interruptScore = flagValue(actionArgs, '--interrupt-min-score');
-    const report = runBookmarkActionRadar({
-      bookmarks,
-      storePath: storePath(actionArgs),
-      archivePath: flagValue(actionArgs, '--archive'),
-      surfaceMinScore: minScore ? Number(minScore) : undefined,
-      interruptMinScore: interruptScore ? Number(interruptScore) : undefined,
-    });
-    const out = flagValue(actionArgs, '--out');
-    if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
-    if (hasFlag(actionArgs, '--json') || out) printJson(report);
-    else console.log(`bookmarks=${report.deduped_count}\twork_items=${report.created_work_items.length}\tarchived=${report.archived_decisions.length}\tsurfaced=${report.surfaced_candidates.length}`);
-    return;
+    if (action === 'radar') {
+      const input = flagValue(actionArgs, '--input');
+      if (!input) throw new Error('gbrain ops bookmarks radar requires --input <bookmarks.json|bookmarks.md>');
+      const bookmarks = readBookmarkBatchFile(input);
+      const minScore = flagValue(actionArgs, '--surface-min-score');
+      const interruptScore = flagValue(actionArgs, '--interrupt-min-score');
+      const report = runBookmarkActionRadar({
+        bookmarks,
+        storePath: storePath(actionArgs),
+        archivePath: flagValue(actionArgs, '--archive'),
+        surfaceMinScore: minScore ? Number(minScore) : undefined,
+        interruptMinScore: interruptScore ? Number(interruptScore) : undefined,
+      });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`bookmarks=${report.deduped_count}\twork_items=${report.created_work_items.length}\tarchived=${report.archived_decisions.length}\tsurfaced=${report.surfaced_candidates.length}`);
+      return;
+    }
+    if (action === 'deep-radar' || action === 'deep') {
+      const input = flagValue(actionArgs, '--input');
+      if (!input) throw new Error('gbrain ops bookmarks deep-radar requires --input <bookmarks.json|bookmarks.md>');
+      const minScore = flagValue(actionArgs, '--surface-min-score');
+      const interruptScore = flagValue(actionArgs, '--interrupt-min-score');
+      const report = runBookmarkDeepRadar({
+        bookmarks: readBookmarkDeepRadarInputFile(input),
+        storePath: storePath(actionArgs),
+        artifactPath: flagValue(actionArgs, '--artifact-store') || flagValue(actionArgs, '--archive'),
+        surfaceMinScore: minScore ? Number(minScore) : undefined,
+        interruptMinScore: interruptScore ? Number(interruptScore) : undefined,
+      });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`bookmarks=${report.deduped_count}\tspans=${report.source_spans.length}\ttopic_extractions=${report.topic_extractions.length}\twork_items=${report.created_work_items.length}`);
+      return;
+    }
+    throw new Error('gbrain ops bookmarks supports: radar, deep-radar');
   }
 
   if (sub === 'meetings' || sub === 'meeting-transcripts') {
