@@ -26,6 +26,7 @@
 import { writeFileSync, unlinkSync, existsSync } from 'fs';
 import { join } from 'path';
 import type { BrainEngine } from '../core/engine.ts';
+import { resolveSourceItem, resolveSourceSpan } from '../core/evidence/source-bridge.ts';
 
 // ── Validation ──────────────────────────────────────────────
 
@@ -324,6 +325,38 @@ async function runFederate(engine: BrainEngine, args: string[], value: boolean):
   console.log(`Source "${id}" is now ${value ? 'federated (appears in cross-source default search)' : 'isolated (only searched when explicitly named)'}.`);
 }
 
+// ── Subcommand: item / span bridge ──────────────────────────
+
+function printJson(payload: unknown): void {
+  console.log(JSON.stringify(payload, null, 2));
+}
+
+async function runItemBridge(engine: BrainEngine, args: string[]): Promise<void> {
+  const sub = args[0];
+  const id = args[1];
+  const json = args.includes('--json');
+  if (sub !== 'show' || !id) {
+    console.error('Usage: gbrain sources item show <id> --json');
+    process.exit(2);
+  }
+  const item = await resolveSourceItem(engine, id);
+  if (json) printJson({ status: 'hit', item });
+  else console.log(`${item.id}\nkind: ${item.kind}\nnamespace: ${item.namespace}\nprivacy: ${item.privacy}\ntitle: ${item.title ?? ''}`);
+}
+
+async function runSpanBridge(engine: BrainEngine, args: string[]): Promise<void> {
+  const sub = args[0];
+  const ref = args[1];
+  const json = args.includes('--json');
+  if (sub !== 'show' || !ref) {
+    console.error('Usage: gbrain sources span show <ref> --json');
+    process.exit(2);
+  }
+  const resolved = await resolveSourceSpan(engine, ref);
+  if (json) printJson({ status: 'hit', ...resolved });
+  else console.log(`${resolved.span.ref}\nitem: ${resolved.item.id}\nquote_hash: ${resolved.span.quote_hash ?? ''}\n> ${(resolved.span.quote ?? '').replace(/\n/g, '\n> ')}`);
+}
+
 // ── Dispatcher ──────────────────────────────────────────────
 
 export async function runSources(engine: BrainEngine, args: string[]): Promise<void> {
@@ -340,6 +373,8 @@ export async function runSources(engine: BrainEngine, args: string[]): Promise<v
     case 'detach':     runDetach(); return;
     case 'federate':   return runFederate(engine, rest, true);
     case 'unfederate': return runFederate(engine, rest, false);
+    case 'item':       return runItemBridge(engine, rest);
+    case 'span':       return runSpanBridge(engine, rest);
     case undefined:
     case '--help':
     case '-h':
@@ -366,7 +401,10 @@ Subcommands:
   detach                            Remove .gbrain-source from CWD.
   federate <id>                     Make source appear in cross-source default search.
   unfederate <id>                   Isolate source from default search.
+  item show <id> --json             Resolve a unified source_item bridge record.
+  span show <ref> --json            Resolve a unified source_span bridge record.
 
 Source id: [a-z0-9-]{1,32}. Immutable citation key.
+Bridge refs preserve gbs1:<source_id>:<slug>#<section>:Lx-Ly as valid source_spans.
 `);
 }
