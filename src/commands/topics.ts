@@ -23,6 +23,15 @@ import {
   reduceTopicClaimsFromExtraction,
   validateTopicClaimReductionReport,
 } from '../core/topics/claim-reducer.ts';
+import {
+  appendTopicCurrentStateArtifact,
+  appendTopicDailyDeltaArtifact,
+  compileTopicCurrentState,
+  compileTopicDailyDelta,
+  readTopicReductionOrStateFile,
+  validateTopicCurrentStateSurface,
+  validateTopicDailyDeltaSurface,
+} from '../core/topics/state-delta.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -38,7 +47,7 @@ function registryPath(args: string[]): string { return flagValue(args, '--file')
 export async function runTopicsCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, and review-only claim reduction. Public P3/world only; WorkItem creation never performs live web fetching.`);
+    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics state --topic <id> --from-reduction <file> [--from-extraction <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics delta --topic <id> --from-current <file> [--from-previous <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, claim reduction, current-state, and daily-delta surfaces. Public P3/world only; WorkItem creation never performs live web fetching.`);
      return;
    }
 
@@ -78,6 +87,49 @@ export async function runTopicsCommand(_engine: unknown, args: string[]): Promis
     const payload = { ok: errors.length === 0, schema: 'gbrain.topics.reduce_claims.v1', errors, stored_at, report };
     if (hasFlag(rest, '--json') || out) printJson(payload);
     else console.log(`${report.topic_id}\tclaims=${report.diagnostics.claims_emitted}\tsupported=${report.diagnostics.supported_claims}\tdraft=${report.diagnostics.draft_claims}\tcontested=${report.diagnostics.contested_claims}\tstored_at=${stored_at || 'none'}`);
+    if (errors.length) process.exitCode = 1;
+    return;
+  }
+
+  if (sub === 'state') {
+    const topic = flagValue(rest, '--topic') || rest.find(a => !a.startsWith('--'));
+    if (!topic) throw new Error('gbrain topics state requires --topic <id>');
+    const fromReduction = flagValue(rest, '--from-reduction') || flagValue(rest, '--from-claims') || flagValue(rest, '--from');
+    if (!fromReduction) throw new Error('gbrain topics state requires --from-reduction <file>');
+    const reduction = readTopicReductionOrStateFile(fromReduction);
+    if (reduction.schema !== 'gbrain.topics.claim_reduction_report.v1') throw new Error('gbrain topics state --from-reduction must contain gbrain.topics.claim_reduction_report.v1');
+    const fromExtraction = flagValue(rest, '--from-extraction') || flagValue(rest, '--from-candidates');
+    const extraction = fromExtraction ? readTopicCandidateExtractionReportFile(fromExtraction) : undefined;
+    const surface = compileTopicCurrentState({ topic_id: topic, reduction, extraction });
+    const errors = validateTopicCurrentStateSurface(surface);
+    const out = flagValue(rest, '--out');
+    if (out) writeFileSync(out, JSON.stringify(surface, null, 2) + '\n');
+    let stored_at: string | undefined;
+    if (!hasFlag(rest, '--no-store') && !hasFlag(rest, '--dry-run')) stored_at = appendTopicCurrentStateArtifact(surface, flagValue(rest, '--artifact-store'));
+    const payload = { ok: errors.length === 0, schema: 'gbrain.topics.state.v1', errors, stored_at, surface };
+    if (hasFlag(rest, '--json') || out) printJson(payload);
+    else console.log(`${surface.topic_id}\tclaims=${surface.coverage.current_claims}\tunknowns=${surface.open_unknowns.length}\tnext_work=${surface.next_work.length}\tstored_at=${stored_at || 'none'}`);
+    if (errors.length) process.exitCode = 1;
+    return;
+  }
+
+  if (sub === 'delta') {
+    const topic = flagValue(rest, '--topic') || rest.find(a => !a.startsWith('--'));
+    if (!topic) throw new Error('gbrain topics delta requires --topic <id>');
+    const fromCurrent = flagValue(rest, '--from-current') || flagValue(rest, '--from-reduction') || flagValue(rest, '--from');
+    if (!fromCurrent) throw new Error('gbrain topics delta requires --from-current <file>');
+    const current = readTopicReductionOrStateFile(fromCurrent);
+    const fromPrevious = flagValue(rest, '--from-previous') || flagValue(rest, '--previous');
+    const previous = fromPrevious ? readTopicReductionOrStateFile(fromPrevious) : undefined;
+    const surface = compileTopicDailyDelta({ topic_id: topic, current, previous });
+    const errors = validateTopicDailyDeltaSurface(surface);
+    const out = flagValue(rest, '--out');
+    if (out) writeFileSync(out, JSON.stringify(surface, null, 2) + '\n');
+    let stored_at: string | undefined;
+    if (!hasFlag(rest, '--no-store') && !hasFlag(rest, '--dry-run')) stored_at = appendTopicDailyDeltaArtifact(surface, flagValue(rest, '--artifact-store'));
+    const payload = { ok: errors.length === 0, schema: 'gbrain.topics.delta.v1', errors, stored_at, surface };
+    if (hasFlag(rest, '--json') || out) printJson(payload);
+    else console.log(`${surface.topic_id}\tnew=${surface.material_new.length}\tchanged=${surface.changed.length}\trepeated=${surface.repeated.length}\tstale=${surface.stale.length}\tcontradicted=${surface.contradicted.length}\tstored_at=${stored_at || 'none'}`);
     if (errors.length) process.exitCode = 1;
     return;
   }

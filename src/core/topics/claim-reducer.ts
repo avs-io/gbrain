@@ -115,11 +115,11 @@ function isExpired(candidate: TopicClaimCandidate, now: Date): string | undefine
 }
 
 function stripNegation(value: string): string {
-  return norm(value).replace(/\b(not|no|never|denied|deny|does not|do not|will not|cannot|can't|false|untrue|unsupported)\b/g, '').replace(/\s+/g, ' ').trim();
+  return norm(value).replace(/\b(not|no|never|denied|deny|does not|do not|did not|will not|cannot|can't|false|untrue|unsupported)\b/g, '').replace(/\s+/g, ' ').trim();
 }
 
 function hasNegation(value: string): boolean {
-  return /\b(no|not|never|denied|denies|does not|do not|will not|cannot|can't|false|untrue|unsupported|contradict)\b/i.test(value);
+  return /\b(no|not|never|denied|denies|does not|do not|did not|will not|cannot|can't|false|untrue|unsupported|contradict)\b/i.test(value);
 }
 
 function contradictionKey(value: string): string {
