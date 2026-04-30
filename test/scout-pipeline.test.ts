@@ -115,4 +115,19 @@ describe('scout CLI recipes', () => {
     const out = JSON.parse(await captureStdout(() => runScoutCommand(null, ['topics', 'list', '--json'])));
     expect(out.tracks.map((t: any) => t.slug)).toEqual(['sovereign-ai-india', 'agent-memory-systems', 'ai-agent-infra']);
   });
+
+  test('public run composes signals from source array', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-scout-run-'));
+    const file = join(dir, 'sources.json');
+    writeFileSync(file, JSON.stringify([
+      { source_url: 'https://example.com/1', source_title: 'AI infra note', claim: 'agent infra update', excerpt: 'New orchestration infra with eval loops.', entities: ['infra', 'evals'] },
+      { source_title: 'Memory memo', claim: 'memory launch', excerpt: 'A source-grounded recall system for long-running agents.', entities: ['memory'] },
+    ]), 'utf8');
+
+    const out = JSON.parse(await captureStdout(() => runScoutCommand(null, ['run', '--recipe', 'ai-agent-infra', '--input', file, '--json'])));
+    expect(out.schema).toBe('gbrain.scout.run_report.v1');
+    expect(out.signal_count).toBe(2);
+    expect(out.signals[0].topic).toBe('ai-agent-infra');
+    expect(out.signals[1].source_title).toBe('Memory memo');
+  });
 });
