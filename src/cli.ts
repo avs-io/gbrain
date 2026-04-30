@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'claims', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'world', 'context', 'radar', 'personal']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'claims', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'world', 'context', 'radar', 'actions', 'personal']);
 
 async function main() {
   // Parse global flags (--quiet / --progress-json / --progress-interval)
@@ -373,6 +373,11 @@ async function handleCliOnly(command: string, args: string[]) {
   if (command === 'radar') {
     const { runRadarCommand } = await import('./commands/radar.ts');
     await runRadarCommand(null, args);
+    return;
+  }
+  if (command === 'actions') {
+    const { runActionsCommand } = await import('./commands/actions.ts');
+    await runActionsCommand(null, args);
     return;
   }
   if (command === 'scout') {
