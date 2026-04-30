@@ -158,6 +158,23 @@ function sourceHintsForQuery(query: string): SourceHint[] {
     });
   }
 
+  if (q.includes('sovereign ai') && (q.includes('eonic') || q.includes('dormant') || q.includes('primary') || q.includes('parallel'))) {
+    hints.push(
+      {
+        slug: '_ventures/sovereign-ai',
+        phrases: ['Eonic]] demoted to parallel exploration. Primary focus shifted to sovereign AI applications for the Indian state'],
+      },
+      {
+        slug: 'intelligence/eonic-active-sanath-partnership-2026-04-26',
+        phrases: ['**Implication:** Eonic is NOT dormant'],
+      },
+      {
+        slug: 'eonic-sanath-update-draft',
+        phrases: ['Not dead, but no longer the main vehicle'],
+      },
+    );
+  }
+
   if (q.includes('eonic')) {
     hints.push({
       slug: '_ventures/eonic',

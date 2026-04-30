@@ -85,6 +85,35 @@ Iron push: Ferrous bisglycinate 45 mg fasted daily, lactoferrin 200 mg BID; re-t
     timeline: '',
     type: 'source',
   }],
+  ['_ventures/sovereign-ai', {
+    slug: '_ventures/sovereign-ai',
+    source_id: 'default',
+    title: 'Sovereign AI — Judicial India Thesis',
+    compiled_truth: `# Sovereign AI — Judicial India
+
+> **Active thesis as of April 2026.** [[_ventures/eonic|Eonic]] demoted to parallel exploration. Primary focus shifted to sovereign AI applications for the Indian state.`,
+    timeline: '',
+    type: 'source',
+  }],
+  ['intelligence/eonic-active-sanath-partnership-2026-04-26', {
+    slug: 'intelligence/eonic-active-sanath-partnership-2026-04-26',
+    source_id: 'default',
+    title: 'Eonic Active Sanath Partnership 2026 04 26',
+    compiled_truth: `# Eonic Active — Sanath Partnership, Files in Claude Repo
+
+**Implication:** Eonic is NOT dormant (contradicts prior memory state). Chief is actively developing it with a partner named Sanath.`,
+    timeline: '',
+    type: 'source',
+  }],
+  ['eonic-sanath-update-draft', {
+    slug: 'eonic-sanath-update-draft',
+    source_id: 'default',
+    title: 'Eonic Sanath Update Draft',
+    compiled_truth: `AVS has been going deep on a new thesis — sovereign AI for the Indian judiciary. This is now the primary wedge.
+What that means for us: Eonic as currently conceived — supplements-first, health OS — has moved to parallel exploration. Not dead, but no longer the main vehicle.`,
+    timeline: '',
+    type: 'source',
+  }],
   ['sources/chatgpt/full-export-all/2025-09-15-pregnancy-protocol-review-68907095', {
     slug: 'sources/chatgpt/full-export-all/2025-09-15-pregnancy-protocol-review-68907095',
     source_id: 'default',
@@ -183,6 +212,22 @@ describe('Chief-confirmed autobiographical validation recall', () => {
     const railSection = sectionBody(answer.answer, 'Why ACC/MWAL were not enough as the base rail');
     expect(railSection).not.toMatch(/\[S2\].{0,40}\[S2\]/s);
     expectReadableSemicolonDensity(railSection);
+  });
+
+  test('recalls current strategy posture: Sovereign AI primary, Eonic not dormant and no longer primary', async () => {
+    const out = await recallEvidence(engine(), 'Was Eonic dormant, or is Sovereign AI primary while Eonic stays active parallel?', { limit: 6, before: 0, after: 0 });
+
+    expect(out.status).toBe('hit');
+    const joined = out.evidence.map(e => e.quote).join('\n');
+    expect(joined).toContain('Primary focus shifted to sovereign AI applications for the Indian state');
+    expect(joined).toContain('Eonic is NOT dormant');
+    expect(joined).toContain('no longer the main vehicle');
+
+    expect(out.evidence.length).toBeGreaterThanOrEqual(3);
+
+    const answer = synthesizeAnswerFromRecall(out, { maxEvidence: 6, maxQuoteChars: 220 });
+    expect(answer.status).toBe('hit');
+    expect(answer.answer).toContain('gbs1:');
   });
 
   test('recalls and synthesizes Anu pregnancy supplement stack and ferrous ascorbate/ferritin context', async () => {
