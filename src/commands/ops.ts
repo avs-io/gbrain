@@ -23,11 +23,14 @@ import {
   renderOpsDashboardMarkdown,
   selectWorkerRoute,
   superviseOps,
+  syncTopicTracksFromYamlFile,
   syncProgramsFromYamlFile,
   syncWorkerProfilesFromYamlFile,
   listWorkerProfiles,
+  listOpsTopicTracks,
   type WorkItemState,
 } from '../core/ops/kernel.ts';
+import { runTopicTrackScoutCycle } from '../core/scout/topic-track-cycle.ts';
 import {
   buildLaunchAgentPlan,
   heartbeatCheck,
@@ -54,6 +57,9 @@ gbrain ops programs list --json [--store <path>]
 gbrain ops programs sync --file <programs.yaml> --json [--store <path>]
 gbrain ops workers list --json [--store <path>]
 gbrain ops workers sync --file <worker_profiles.yaml> --json [--store <path>]
+gbrain ops topic-tracks list --json [--store <path>]
+gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
+gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -143,6 +149,44 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       return;
     }
     throw new Error('gbrain ops workers supports: list, sync, route');
+  }
+
+  if (sub === 'topic-tracks' || sub === 'topics') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (!action || action === 'list') {
+      const topic_tracks = listOpsTopicTracks({ path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.topic_tracks.list.v1', topic_tracks });
+      else for (const t of topic_tracks) console.log(`${t.id}\t${t.status}\t${t.priority}\t${t.title}`);
+      return;
+    }
+    if (action === 'sync') {
+      const file = flagValue(actionArgs, '--file');
+      if (!file) throw new Error('gbrain ops topic-tracks sync requires --file <topic_tracks.yaml>');
+      const result = syncTopicTracksFromYamlFile(file, { path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ...result, schema: 'gbrain.ops.topic_tracks.sync.v1' });
+      else console.log(`synced ${result.upserted_count} topic tracks from ${result.source_file}`);
+      return;
+    }
+    throw new Error('gbrain ops topic-tracks supports: list, sync');
+  }
+
+  if (sub === 'scout') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action !== 'cycle') throw new Error('gbrain ops scout supports: cycle');
+    const topicTrackId = flagValue(actionArgs, '--topic-track') || flagValue(actionArgs, '--track') || flagValue(actionArgs, '--id');
+    if (!topicTrackId) throw new Error('gbrain ops scout cycle requires --topic-track <id>');
+    const input = flagValue(actionArgs, '--input');
+    if (!input) throw new Error('gbrain ops scout cycle requires --input <public-sources.json>');
+    const sources = JSON.parse(readFileSync(input, 'utf8'));
+    if (!Array.isArray(sources)) throw new Error('gbrain ops scout cycle --input must be a JSON array');
+    const report = runTopicTrackScoutCycle({ topicTrackId, sources, storePath: storePath(actionArgs), since: flagValue(actionArgs, '--since') });
+    const out = flagValue(actionArgs, '--out');
+    if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+    if (hasFlag(actionArgs, '--json') || out) printJson(report);
+    else console.log(`${report.topic_track_id}\tsources=${report.scout_report.source_items.length}\tclaims=${report.extraction.claims.length}\tdeltas=${report.recent_deltas.new.length + report.recent_deltas.changed.length + report.recent_deltas.repeated.length}\tsurfacing=${report.surfacing_candidates.length}`);
+    return;
   }
 
   if (sub === 'dashboard') {

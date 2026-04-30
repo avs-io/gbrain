@@ -1,0 +1,60 @@
+topic_tracks:
+  - id: world-sovereign-ai-india
+    slug: sovereign-ai-india
+    recipe_slug: sovereign-ai-india
+    program_id: world-sovereign-ai-india
+    title: Sovereign AI India
+    status: active
+    priority: 90
+    objective: Maintain dynamic public-world intelligence on Indian sovereign AI policy, compute, company, procurement, and institutional signals.
+    seed_queries:
+      - India sovereign AI compute policy IndiaAI GPU tender
+      - MeitY sovereign AI foundation model India
+      - IndiaAI mission compute capacity sovereign AI
+      - Bhashini sovereign AI model India
+      - Sovereign AI India procurement GPU cloud
+    watch_entities:
+      - MeitY
+      - IndiaAI Mission
+      - Digital India Corporation
+      - Bhashini
+      - CDAC
+      - Reliance
+      - Tata Communications
+      - Yotta
+      - Sarvam AI
+      - Krutrim
+    source_classes:
+      - government_release
+      - policy_document
+      - news
+      - company_announcement
+      - funding
+      - public_social_signal
+      - procurement_tender
+    extraction_targets:
+      - entities
+      - claims
+      - events
+      - dates
+      - decisions
+      - funding
+      - compute_capacity
+      - procurement_signal
+      - named_people
+      - relevance_to_chief
+    cadence:
+      discovery_hours: 2
+      delta_compile_hours: 6
+      daily_state: true
+      weekly_deep_synthesis: true
+    budgets:
+      minimax_calls_per_day: 5000
+      max_sources_per_day: 1000
+      max_interrupts_per_day: 3
+      max_external_fetches: 0
+    autonomy:
+      can_ingest_public_sources: true
+      can_create_world_claim_proposals: true
+      can_mutate_trusted_memory: false
+      can_contact_people: false

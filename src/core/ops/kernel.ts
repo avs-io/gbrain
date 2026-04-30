@@ -12,6 +12,8 @@ export const OPS_DISPATCH_PACKET_SCHEMA = 'gbrain.ops.openclaw_dispatch_packet.v
 export const OPS_ROADMAP_FLOW_SCHEMA = 'gbrain.ops.roadmap_flow.v1';
 export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
 export const OPS_WORKER_PROFILE_SCHEMA = 'gbrain.ops.worker_profile.v1';
+export const OPS_TOPIC_TRACK_SCHEMA = 'gbrain.ops.topic_track.v1';
+export const OPS_SCOUT_SOURCE_QUEUE_SCHEMA = 'gbrain.ops.scout_source_queue_item.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -185,6 +187,46 @@ export interface OpsWorkerProfile {
   updated_at: string;
 }
 
+export interface OpsTopicTrack {
+  schema: typeof OPS_TOPIC_TRACK_SCHEMA;
+  id: string;
+  slug: string;
+  recipe_slug?: string;
+  program_id: string;
+  title: string;
+  status: ProgramStatus;
+  priority: number;
+  objective: string;
+  seed_queries: string[];
+  watch_entities: string[];
+  source_classes: string[];
+  extraction_targets: string[];
+  cadence: Record<string, unknown>;
+  budgets: Record<string, unknown>;
+  autonomy: Record<string, unknown>;
+  privacy_tier: 'P3_PUBLIC';
+  namespace: 'world';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface OpsScoutSourceQueueItem {
+  schema: typeof OPS_SCOUT_SOURCE_QUEUE_SCHEMA;
+  id: string;
+  topic_track_id: string;
+  query: string;
+  status: 'queued' | 'fetched' | 'failed' | 'skipped';
+  source_class?: string;
+  source_url?: string;
+  source_title?: string;
+  published_at?: string;
+  privacy_tier: 'P3_PUBLIC';
+  namespace: 'world';
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OpsInterrupt {
   id: string;
   severity: InterruptSeverity;
@@ -220,6 +262,8 @@ export interface OpsState {
   programs: OpsProgram[];
   work_items: OpsWorkItem[];
   worker_profiles: OpsWorkerProfile[];
+  topic_tracks: OpsTopicTrack[];
+  scout_source_queue: OpsScoutSourceQueueItem[];
   roadmap_flows: OpsRoadmapFlow[];
   runs: OpsWorkRun[];
   leases: OpsLease[];
@@ -301,7 +345,7 @@ export interface OpsDispatchPacket {
   session_id?: string;
 }
 
-type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
+type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'topic_track_upsert' | 'scout_source_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
 
 interface OpsEvent<T = unknown> {
   schema: typeof OPS_EVENT_SCHEMA;
@@ -316,7 +360,11 @@ export interface ProgramSyncResult { ok: true; path: string; source_file: string
 
 export interface WorkerProfileSyncResult { ok: true; path: string; source_file: string; worker_profiles: OpsWorkerProfile[]; upserted_count: number; }
 
+export interface TopicTrackSyncResult { ok: true; path: string; source_file: string; topic_tracks: OpsTopicTrack[]; upserted_count: number; }
+
 export interface OpsWorkerProfilesConfig { workers: OpsWorkerProfile[]; }
+
+export interface OpsTopicTracksConfig { topic_tracks: OpsTopicTrack[]; }
 
 export type WorkerRouteStatus = 'selected' | 'held' | 'denied' | 'legacy';
 
@@ -390,7 +438,7 @@ export function opsStorePath(): string {
 }
 
 export function emptyOpsState(): OpsState {
-  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
+  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], topic_tracks: [], scout_source_queue: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
 }
 
 export function initOpsStore(path = opsStorePath(), now?: Date): { ok: true; path: string; initialized: boolean } {
@@ -430,6 +478,8 @@ function applyEvent(state: OpsState, evt: OpsEvent): void {
     case 'program_upsert': upsertById(state.programs, p as OpsProgram); break;
     case 'work_upsert': upsertById(state.work_items, p as OpsWorkItem); break;
     case 'worker_profile_upsert': upsertById(state.worker_profiles, p as OpsWorkerProfile); break;
+    case 'topic_track_upsert': upsertById(state.topic_tracks, p as OpsTopicTrack); break;
+    case 'scout_source_upsert': upsertById(state.scout_source_queue, p as OpsScoutSourceQueueItem); break;
     case 'roadmap_flow_upsert': upsertById(state.roadmap_flows, p as OpsRoadmapFlow); break;
     case 'run_upsert': upsertById(state.runs, p as OpsWorkRun); break;
     case 'lease_upsert': upsertById(state.leases, p as OpsLease); break;
@@ -610,6 +660,80 @@ export function syncWorkerProfilesFromYamlFile(file: string, opts: OpsStoreOptio
   const profiles = parsed.workers.map(p => normalizeWorkerProfile(p, opts.now));
   for (const profile of profiles) appendEvent(path, 'worker_profile_upsert', profile, opts.now);
   return { ok: true, path, source_file: file, worker_profiles: profiles, upserted_count: profiles.length };
+}
+
+export function normalizeTopicTrack(input: unknown, now?: Date): OpsTopicTrack {
+  if (!isObject(input)) throw new Error('topic track must be an object');
+  const id = String(input.id || input.slug || '').trim();
+  if (!id) throw new Error('topic_track.id is required');
+  const slug = String(input.slug || id.replace(/^world-/, '')).trim();
+  const programId = String(input.program_id || id).trim();
+  const at = nowIso(now);
+  const seedQueries = stringArray(input.seed_queries || input.queries);
+  if (!seedQueries.length) throw new Error(`topic_track ${id} requires seed_queries`);
+  const watchEntities = stringArray(input.watch_entities);
+  if (!watchEntities.length) throw new Error(`topic_track ${id} requires watch_entities`);
+  return {
+    schema: OPS_TOPIC_TRACK_SCHEMA,
+    id,
+    slug,
+    recipe_slug: typeof input.recipe_slug === 'string' ? input.recipe_slug : slug,
+    program_id: programId,
+    title: String(input.title || id),
+    status: ['active', 'paused', 'retired'].includes(String(input.status)) ? input.status as ProgramStatus : 'active',
+    priority: numberOr(input.priority, 50),
+    objective: String(input.objective || input.description || `Scout public world signals for ${id}`),
+    seed_queries: seedQueries,
+    watch_entities: watchEntities,
+    source_classes: stringArray(input.source_classes),
+    extraction_targets: stringArray(input.extraction_targets),
+    cadence: object(input.cadence),
+    budgets: object(input.budgets),
+    autonomy: object(input.autonomy),
+    privacy_tier: 'P3_PUBLIC',
+    namespace: 'world',
+    created_at: typeof input.created_at === 'string' ? input.created_at : at,
+    updated_at: at,
+  };
+}
+
+export function parseTopicTracksYaml(raw: string): OpsTopicTracksConfig {
+  const parsed = parseSimpleYaml(raw);
+  if (!isObject(parsed)) throw new Error('topic track YAML must be a mapping');
+  const rawTracks = Array.isArray(parsed.topic_tracks) ? parsed.topic_tracks : (Array.isArray(parsed.tracks) ? parsed.tracks : undefined);
+  if (!rawTracks) throw new Error('topic track YAML must contain topic_tracks: [...]');
+  return { topic_tracks: rawTracks.map(t => normalizeTopicTrack(t)) };
+}
+
+export function syncTopicTracksFromYamlFile(file: string, opts: OpsStoreOptions = {}): TopicTrackSyncResult {
+  const raw = readFileSync(file, 'utf8');
+  const parsed = parseTopicTracksYaml(raw);
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const tracks = parsed.topic_tracks.map(t => normalizeTopicTrack(t, opts.now));
+  for (const track of tracks) appendEvent(path, 'topic_track_upsert', track, opts.now);
+  return { ok: true, path, source_file: file, topic_tracks: tracks, upserted_count: tracks.length };
+}
+
+export function listOpsTopicTracks(opts: OpsStoreOptions = {}): OpsTopicTrack[] {
+  return readOpsState(opts.path || opsStorePath()).topic_tracks.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
+export function upsertScoutSourceQueueItem(input: Omit<OpsScoutSourceQueueItem, 'schema' | 'created_at' | 'updated_at'> & { created_at?: string; updated_at?: string }, opts: OpsStoreOptions = {}): OpsScoutSourceQueueItem {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const at = nowIso(opts.now);
+  const item: OpsScoutSourceQueueItem = {
+    schema: OPS_SCOUT_SOURCE_QUEUE_SCHEMA,
+    ...input,
+    privacy_tier: 'P3_PUBLIC',
+    namespace: 'world',
+    metadata: object(input.metadata),
+    created_at: input.created_at || at,
+    updated_at: at,
+  };
+  appendEvent(path, 'scout_source_upsert', item, opts.now);
+  return item;
 }
 
 export function parseWorkerProfilesYaml(raw: string): OpsWorkerProfilesConfig {
