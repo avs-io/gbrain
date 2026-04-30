@@ -1,8 +1,9 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 
 import {
   WORK_ITEM_STATES,
   auditOps,
+  buildOpsDashboard,
   claimWorkItem,
   completeWorkItem,
   enqueueWorkPacket,
@@ -11,6 +12,8 @@ import {
   listWorkItems,
   opsStatus,
   opsStorePath,
+  renderOpsDashboardMarkdown,
+  syncProgramsFromYamlFile,
   type WorkItemState,
 } from '../core/ops/kernel.ts';
 
@@ -31,6 +34,8 @@ export async function runOpsCommand(_engine: unknown, args: string[]): Promise<v
     console.log(`gbrain ops init [--store <path>] [--json]
 gbrain ops status --json [--store <path>]
 gbrain ops programs list --json [--store <path>]
+gbrain ops programs sync --file <programs.yaml> --json [--store <path>]
+gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
@@ -59,10 +64,36 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
   if (sub === 'programs') {
     const action = rest[0];
     const actionArgs = rest.slice(1);
-    if (action !== 'list') throw new Error('gbrain ops programs supports: list');
-    const programs = listPrograms({ path: storePath(actionArgs) });
-    if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.programs.list.v1', programs });
-    else for (const p of programs) console.log(`${p.id}\t${p.status}\t${p.priority}\t${p.title}`);
+    if (action === 'list') {
+      const programs = listPrograms({ path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.programs.list.v1', programs });
+      else for (const p of programs) console.log(`${p.id}\t${p.status}\t${p.priority}\t${p.title}`);
+      return;
+    }
+    if (action === 'sync') {
+      const file = flagValue(actionArgs, '--file');
+      if (!file) throw new Error('gbrain ops programs sync requires --file <programs.yaml>');
+      const result = syncProgramsFromYamlFile(file, { path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ...result, schema: 'gbrain.ops.programs.sync.v1' });
+      else console.log(`synced ${result.upserted_count} programs from ${result.source_file}`);
+      return;
+    }
+    throw new Error('gbrain ops programs supports: list, sync');
+  }
+
+  if (sub === 'dashboard') {
+    const dashboard = buildOpsDashboard({ path: storePath(rest) });
+    if (hasFlag(rest, '--json')) {
+      printJson({ ok: true, schema: 'gbrain.ops.dashboard.v1', dashboard });
+      return;
+    }
+    if (!hasFlag(rest, '--markdown') && rest.some(a => a.startsWith('--') && !['--store', '--output'].includes(a) && !a.startsWith('--store=') && !a.startsWith('--output='))) {
+      throw new Error('gbrain ops dashboard supports --json, --markdown, --output, --store');
+    }
+    const markdown = renderOpsDashboardMarkdown(dashboard);
+    const output = flagValue(rest, '--output');
+    if (output) writeFileSync(output, markdown + '\n');
+    console.log(markdown);
     return;
   }
 

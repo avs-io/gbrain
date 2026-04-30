@@ -214,6 +214,23 @@ interface OpsEvent<T = unknown> {
 
 export interface OpsStoreOptions { path?: string; now?: Date; }
 
+export interface ProgramSyncResult { ok: true; path: string; source_file: string; programs: OpsProgram[]; upserted_count: number; }
+
+export interface OpsDashboardState {
+  generated_at: string;
+  store_path: string;
+  active_programs: OpsProgram[];
+  ready_backlog: OpsWorkItem[];
+  running_tasks: OpsWorkItem[];
+  stale_tasks: Array<{ work_item?: OpsWorkItem; lease: OpsLease }>;
+  recent_completions: OpsWorkItem[];
+  pending_approvals: { work_items: OpsWorkItem[]; interrupts: OpsInterrupt[] };
+  budget_usage: Array<{ provider: string; model?: string; program_id?: string; calls: number; input_tokens: number; output_tokens: number; estimated_cost: number }>;
+  interrupt_queue: OpsInterrupt[];
+  supervisor_health: { status: 'green' | 'amber' | 'red' | 'unknown'; latest_tick?: OpsSupervisorTick; stale_active_lease_count: number; ready_count: number; running_count: number };
+  counts: ReturnType<typeof countOps>;
+}
+
 function nowIso(now?: Date): string { return (now || new Date()).toISOString(); }
 function isObject(v: unknown): v is Record<string, any> { return !!v && typeof v === 'object' && !Array.isArray(v); }
 function stringArray(v: unknown): string[] { return Array.isArray(v) ? v.map(x => String(x)).filter(Boolean) : []; }
@@ -387,6 +404,144 @@ export function enqueueWorkPacket(packet: unknown, opts: OpsStoreOptions = {}): 
     workItems.push(item);
   }
   return { ok: true, path, programs, work_items: workItems };
+}
+
+export function syncProgramsFromYamlFile(file: string, opts: OpsStoreOptions = {}): ProgramSyncResult {
+  const raw = readFileSync(file, 'utf8');
+  const parsed = parseSimpleYaml(raw);
+  if (!isObject(parsed) || !Array.isArray(parsed.programs)) throw new Error('program registry YAML must contain programs: [...]');
+
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const programs = parsed.programs.map(p => normalizeProgram(p, opts.now));
+  for (const program of programs) appendEvent(path, 'program_upsert', program, opts.now);
+  return { ok: true, path, source_file: file, programs, upserted_count: programs.length };
+}
+
+export function parseProgramsYaml(raw: string): { programs: unknown[] } {
+  const parsed = parseSimpleYaml(raw);
+  if (!isObject(parsed) || !Array.isArray(parsed.programs)) throw new Error('program registry YAML must contain programs: [...]');
+  return { programs: parsed.programs };
+}
+
+interface YamlLine { indent: number; text: string; line: number; }
+
+function parseSimpleYaml(raw: string): unknown {
+  const lines: YamlLine[] = raw.split(/\r?\n/).map((line, ix) => {
+    const withoutComment = stripYamlComment(line);
+    return { indent: withoutComment.match(/^ */)?.[0].length || 0, text: withoutComment.trim(), line: ix + 1 };
+  }).filter(l => l.text.length > 0);
+  if (lines.length === 0) return {};
+  const [value, next] = parseYamlBlock(lines, 0, lines[0].indent);
+  if (next !== lines.length) throw new Error(`unexpected YAML content at line ${lines[next]?.line || next + 1}`);
+  return value;
+}
+
+function stripYamlComment(line: string): string {
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if ((ch === '"' || ch === "'") && line[i - 1] !== '\\') quote = quote === ch ? undefined : (quote || ch);
+    if (ch === '#' && !quote && (i === 0 || /\s/.test(line[i - 1] || ''))) return line.slice(0, i).trimEnd();
+  }
+  return line;
+}
+
+function parseYamlBlock(lines: YamlLine[], index: number, indent: number): [unknown, number] {
+  if (index >= lines.length) return [{}, index];
+  if (lines[index].indent < indent) return [{}, index];
+  if (lines[index].text.startsWith('- ')) return parseYamlArray(lines, index, indent);
+  return parseYamlMap(lines, index, indent);
+}
+
+function parseYamlArray(lines: YamlLine[], index: number, indent: number): [unknown[], number] {
+  const arr: unknown[] = [];
+  let i = index;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent < indent) break;
+    if (line.indent !== indent || !line.text.startsWith('- ')) break;
+    const rest = line.text.slice(2).trim();
+    if (!rest) {
+      const [child, next] = parseYamlBlock(lines, i + 1, indent + 2);
+      arr.push(child);
+      i = next;
+      continue;
+    }
+    const kv = splitYamlKeyValue(rest);
+    if (kv) {
+      const obj: Record<string, unknown> = {};
+      obj[kv.key] = kv.value === '' ? {} : parseYamlScalar(kv.value);
+      i++;
+      while (i < lines.length && lines[i].indent > indent) {
+        const [child, next] = parseYamlMap(lines, i, lines[i].indent);
+        Object.assign(obj, child);
+        i = next;
+      }
+      arr.push(obj);
+    } else {
+      arr.push(parseYamlScalar(rest));
+      i++;
+    }
+  }
+  return [arr, i];
+}
+
+function parseYamlMap(lines: YamlLine[], index: number, indent: number): [Record<string, unknown>, number] {
+  const obj: Record<string, unknown> = {};
+  let i = index;
+  while (i < lines.length) {
+    const line = lines[i];
+    if (line.indent < indent) break;
+    if (line.indent !== indent || line.text.startsWith('- ')) break;
+    const kv = splitYamlKeyValue(line.text);
+    if (!kv) throw new Error(`invalid YAML mapping at line ${line.line}`);
+    if (kv.value === '') {
+      const [child, next] = parseYamlBlock(lines, i + 1, indent + 2);
+      obj[kv.key] = child;
+      i = next;
+    } else {
+      obj[kv.key] = parseYamlScalar(kv.value);
+      i++;
+    }
+  }
+  return [obj, i];
+}
+
+function splitYamlKeyValue(text: string): { key: string; value: string } | undefined {
+  const match = text.match(/^([A-Za-z0-9_.-]+):(?:\s*(.*))?$/);
+  return match ? { key: match[1], value: match[2] || '' } : undefined;
+}
+
+function parseYamlScalar(raw: string): unknown {
+  const v = raw.trim();
+  if (v === 'true') return true;
+  if (v === 'false') return false;
+  if (v === 'null' || v === '~') return null;
+  if (/^-?\d+(\.\d+)?$/.test(v)) return Number(v);
+  if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) return v.slice(1, -1);
+  if (v.startsWith('[') && v.endsWith(']')) {
+    const inner = v.slice(1, -1).trim();
+    if (!inner) return [];
+    return splitYamlInlineArray(inner).map(parseYamlScalar);
+  }
+  return v;
+}
+
+function splitYamlInlineArray(inner: string): string[] {
+  const out: string[] = [];
+  let current = '';
+  let quote: '"' | "'" | undefined;
+  for (let i = 0; i < inner.length; i++) {
+    const ch = inner[i];
+    if ((ch === '"' || ch === "'") && inner[i - 1] !== '\\') quote = quote === ch ? undefined : (quote || ch);
+    if (ch === ',' && !quote) {
+      out.push(current.trim());
+      current = '';
+    } else current += ch;
+  }
+  if (current.trim()) out.push(current.trim());
+  return out;
 }
 
 export function listPrograms(opts: OpsStoreOptions = {}): OpsProgram[] {
@@ -615,4 +770,132 @@ export function opsStatus(opts: OpsStoreOptions = {}): { ok: true; initialized: 
   const initialized = existsSync(path);
   const state = readOpsState(path);
   return { ok: true, initialized, path, counts: countOps(state, opts.now), latest_tick: state.supervisor_ticks.at(-1) };
+}
+
+export function buildOpsDashboard(opts: OpsStoreOptions = {}): OpsDashboardState {
+  const path = opts.path || opsStorePath();
+  const state = readOpsState(path);
+  const now = opts.now || new Date();
+  const nowMs = now.getTime();
+  const counts = countOps(state, now);
+  const activeLeases = state.leases.filter(l => l.lease_status === 'active');
+  const staleTasks = activeLeases
+    .filter(l => Date.parse(l.expires_at) <= nowMs)
+    .map(lease => ({ lease, work_item: state.work_items.find(w => w.id === lease.work_item_id) }));
+  const latestTick = state.supervisor_ticks.at(-1);
+  const openInterrupts = state.interrupts.filter(i => !['resolved', 'dismissed'].includes(i.status));
+  return {
+    generated_at: nowIso(now),
+    store_path: path,
+    active_programs: [...state.programs].filter(p => p.status === 'active').sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id)),
+    ready_backlog: [...state.work_items].filter(w => w.state === 'ready').sort(sortWorkItems),
+    running_tasks: [...state.work_items].filter(w => activeState(w.state)).sort(sortWorkItems),
+    stale_tasks: staleTasks,
+    recent_completions: [...state.work_items].filter(w => w.state === 'succeeded').sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 10),
+    pending_approvals: {
+      work_items: [...state.work_items].filter(w => w.state === 'waiting_human').sort(sortWorkItems),
+      interrupts: openInterrupts.filter(i => i.requires_human).sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    },
+    budget_usage: summarizeBudgetUsage(state.budget_ledger),
+    interrupt_queue: openInterrupts.sort((a, b) => b.created_at.localeCompare(a.created_at)),
+    supervisor_health: {
+      status: latestTick?.status || 'unknown',
+      latest_tick: latestTick,
+      stale_active_lease_count: staleTasks.length,
+      ready_count: counts.ready_count,
+      running_count: counts.active_count,
+    },
+    counts,
+  };
+}
+
+function sortWorkItems(a: OpsWorkItem, b: OpsWorkItem): number {
+  return b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+}
+
+function summarizeBudgetUsage(entries: OpsBudgetLedgerEntry[]): OpsDashboardState['budget_usage'] {
+  const byKey = new Map<string, OpsDashboardState['budget_usage'][number]>();
+  for (const entry of entries) {
+    const key = [entry.provider, entry.model || '', entry.program_id || ''].join('\t');
+    const row = byKey.get(key) || { provider: entry.provider, model: entry.model, program_id: entry.program_id, calls: 0, input_tokens: 0, output_tokens: 0, estimated_cost: 0 };
+    row.calls += entry.calls || 0;
+    row.input_tokens += entry.input_tokens || 0;
+    row.output_tokens += entry.output_tokens || 0;
+    row.estimated_cost += entry.estimated_cost || 0;
+    byKey.set(key, row);
+  }
+  return [...byKey.values()].sort((a, b) => b.calls - a.calls || a.provider.localeCompare(b.provider));
+}
+
+export function renderOpsDashboardMarkdown(dashboard: OpsDashboardState): string {
+  const lines: string[] = [];
+  lines.push('# Always-On Intelligence OS Dashboard');
+  lines.push('');
+  lines.push('<!-- MACHINE-REFRESHABLE: regenerate with `gbrain ops dashboard --markdown` after syncing the ops store. -->');
+  lines.push('');
+  lines.push(`Generated: ${dashboard.generated_at}`);
+  lines.push(`Store: \`${dashboard.store_path}\``);
+  lines.push('');
+  lines.push('## Supervisor health');
+  lines.push('');
+  lines.push(`- Status: **${dashboard.supervisor_health.status}**`);
+  lines.push(`- Latest tick: ${dashboard.supervisor_health.latest_tick?.tick_at || 'none'}`);
+  lines.push(`- Ready backlog: ${dashboard.supervisor_health.ready_count}`);
+  lines.push(`- Running/leased tasks: ${dashboard.supervisor_health.running_count}`);
+  lines.push(`- Stale active leases: ${dashboard.supervisor_health.stale_active_lease_count}`);
+  lines.push('');
+  lines.push('## Active programs');
+  lines.push('');
+  pushProgramRows(lines, dashboard.active_programs);
+  lines.push('');
+  lines.push('## Ready backlog');
+  lines.push('');
+  pushWorkRows(lines, dashboard.ready_backlog, 'No ready work items.');
+  lines.push('');
+  lines.push('## Running tasks');
+  lines.push('');
+  pushWorkRows(lines, dashboard.running_tasks, 'No running or leased work items.');
+  lines.push('');
+  lines.push('## Stale tasks');
+  lines.push('');
+  if (!dashboard.stale_tasks.length) lines.push('- None.');
+  else for (const row of dashboard.stale_tasks) lines.push(`- ${row.work_item?.id || row.lease.work_item_id} — lease ${row.lease.id} expired ${row.lease.expires_at}`);
+  lines.push('');
+  lines.push('## Recent completions');
+  lines.push('');
+  pushWorkRows(lines, dashboard.recent_completions, 'No recent completions.');
+  lines.push('');
+  lines.push('## Pending approvals');
+  lines.push('');
+  if (!dashboard.pending_approvals.work_items.length && !dashboard.pending_approvals.interrupts.length) lines.push('- None.');
+  for (const item of dashboard.pending_approvals.work_items) lines.push(`- Work item ${item.id} — ${item.title}`);
+  for (const interrupt of dashboard.pending_approvals.interrupts) lines.push(`- Interrupt ${interrupt.id} (${interrupt.severity}) — ${interrupt.title}`);
+  lines.push('');
+  lines.push('## Budget usage');
+  lines.push('');
+  if (!dashboard.budget_usage.length) lines.push('- No budget ledger entries.');
+  else for (const row of dashboard.budget_usage) lines.push(`- ${row.provider}${row.model ? `/${row.model}` : ''}${row.program_id ? ` for ${row.program_id}` : ''}: ${row.calls} calls, ${row.input_tokens}/${row.output_tokens} tokens, est. cost ${row.estimated_cost}`);
+  lines.push('');
+  lines.push('## Interrupt queue');
+  lines.push('');
+  if (!dashboard.interrupt_queue.length) lines.push('- Empty.');
+  else for (const interrupt of dashboard.interrupt_queue) lines.push(`- ${interrupt.severity} ${interrupt.id} [${interrupt.status}] — ${interrupt.title}`);
+  lines.push('');
+  return lines.join('\n');
+}
+
+function pushProgramRows(lines: string[], programs: OpsProgram[]): void {
+  if (!programs.length) {
+    lines.push('- No active programs.');
+    return;
+  }
+  for (const p of programs) lines.push(`- **${p.id}** (${p.priority}) — ${p.objective}`);
+}
+
+function pushWorkRows(lines: string[], workItems: OpsWorkItem[], empty: string): void {
+  if (!workItems.length) {
+    lines.push(`- ${empty}`);
+    return;
+  }
+  for (const w of workItems) lines.push(`- **${w.id}** [${w.state}/${w.lane}/${w.worker_kind}] (${w.priority}) — ${w.title}`);
 }
