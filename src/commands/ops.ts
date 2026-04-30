@@ -46,6 +46,7 @@ import { readBookmarkDeepRadarInputFile, runBookmarkDeepRadar } from '../core/op
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
 import { readOpportunityRadarV2JsonFile, readOpportunityRadarV2SurfaceFile, runOpportunityRadarV2, writeOpportunityRadarV2Report } from '../core/ops/opportunity-radar-v2.ts';
+import { auditUnreducedArtifacts, reduceReportArtifact, writeReportReductionReport } from '../core/ops/report-reducer.ts';
 import {
   buildDailyBuildReportSurface,
   buildMorningBriefSurface,
@@ -85,6 +86,8 @@ gbrain ops bookmarks deep-radar --input <bookmarks.json|bookmarks.md> --json [--
 gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
 gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
 gbrain ops opportunities v2 --topic <id> [--from-state <file>] [--from-delta <file>] [--from-bookmarks <file>] [--from-reduction <file>] [--from-memory-context <file>] --json [--store <ops.jsonl>] [--artifact-store <opportunities.jsonl>] [--out <report.json>]
+gbrain ops reports reduce --input <file> [--topic <id>] [--domain <domain>] --json [--store <ops.jsonl>] [--artifact-store <reductions.jsonl>] [--out <report.json>] [--no-work-items]
+gbrain ops reports audit-unreduced (--manifest <file>|--dir <dir>) --json [--artifact-store <reductions.jsonl>] [--out <audit.json>]
 gbrain ops opportunities brief-ready --json [--store <path>] [--limit 5] [--out <surface.json>]
 gbrain ops opportunities feedback <candidate-id> --useful|--not-useful [--reason <text>] --json [--store <path>]
 gbrain ops brief morning --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 5] [--out <surface.json>]
@@ -292,6 +295,39 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     if (hasFlag(actionArgs, '--json') || out) printJson(report);
     else console.log(`commitments=${report.commitments.length}\tfollow_ups=${report.follow_ups.length}\treminders=${report.reminders.length}\tmemory_proposals=${report.memory_proposals.length}\twork_items=${report.created_work_items.length}`);
     return;
+  }
+
+  if (sub === 'reports') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action === 'reduce') {
+      const input = flagValue(actionArgs, '--input');
+      if (!input) throw new Error('gbrain ops reports reduce requires --input <file>');
+      const report = reduceReportArtifact({
+        inputPath: input,
+        topicId: flagValue(actionArgs, '--topic') || flagValue(actionArgs, '--topic-id'),
+        domain: flagValue(actionArgs, '--domain'),
+        artifactStorePath: flagValue(actionArgs, '--artifact-store') || flagValue(actionArgs, '--reductions-store'),
+        storePath: storePath(actionArgs),
+        createWorkItems: !hasFlag(actionArgs, '--no-work-items'),
+      });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeReportReductionReport(out, report);
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`records=${report.records.length}\ttopic_inputs=${report.topic_evidence_candidate_inputs.length}\topportunities=${report.opportunity_candidate_inputs.length}\tactions=${report.action_work_item_inputs.length}\tdiscarded=${report.discard_records.length}\twork_items=${report.created_work_items.length}`);
+      return;
+    }
+    if (action === 'audit-unreduced' || action === 'audit') {
+      const manifest = flagValue(actionArgs, '--manifest');
+      const dir = flagValue(actionArgs, '--dir');
+      const report = auditUnreducedArtifacts({ manifestPath: manifest, dir, reductionStorePath: flagValue(actionArgs, '--artifact-store') || flagValue(actionArgs, '--reductions-store') });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeReportReductionReport(out, report);
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`artifacts=${report.artifact_count}\tunreduced=${report.unreduced_count}\tcovered=${report.covered_count}`);
+      return;
+    }
+    throw new Error('gbrain ops reports supports: reduce, audit-unreduced');
   }
 
   if (sub === 'opportunities' || sub === 'opportunity-radar') {
