@@ -30,6 +30,7 @@ import {
   syncTopicTracksFromYamlFile,
   syncProgramsFromYamlFile,
   syncWorkerProfilesFromYamlFile,
+  seedInitialWorkItemsFromProgramsYamlFile,
   listWorkerProfiles,
   listOpsTopicTracks,
   type WorkItemState,
@@ -71,6 +72,7 @@ export async function runOpsCommand(_engine: unknown, args: string[]): Promise<v
 gbrain ops status --json [--store <path>]
 gbrain ops programs list --json [--store <path>]
 gbrain ops programs sync --file <programs.yaml> --json [--store <path>]
+gbrain ops programs seed-work --file <programs.yaml> --json [--store <path>] [--force]
 gbrain ops workers list --json [--store <path>]
 gbrain ops workers sync --file <worker_profiles.yaml> --json [--store <path>]
 gbrain ops topic-tracks list --json [--store <path>]
@@ -142,7 +144,15 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       else console.log(`synced ${result.upserted_count} programs from ${result.source_file}`);
       return;
     }
-    throw new Error('gbrain ops programs supports: list, sync');
+    if (action === 'seed-work') {
+      const file = flagValue(actionArgs, '--file');
+      if (!file) throw new Error('gbrain ops programs seed-work requires --file <programs.yaml>');
+      const result = seedInitialWorkItemsFromProgramsYamlFile(file, { path: storePath(actionArgs), force: hasFlag(actionArgs, '--force') });
+      if (hasFlag(actionArgs, '--json')) printJson({ ...result, schema: 'gbrain.ops.programs.seed_work.v1' });
+      else console.log(`seeded ${result.created_count} work items from ${result.source_file}; skipped=${result.skipped_count}`);
+      return;
+    }
+    throw new Error('gbrain ops programs supports: list, sync, seed-work');
   }
 
   if (sub === 'workers') {

@@ -313,11 +313,12 @@ export interface OpsCompletion {
 }
 
 export interface OpsAuditAlert {
-  kind: 'no_idle' | 'blocked_work' | 'waiting_human' | 'stale_active_lease' | 'dispatch_failed' | 'completion_missing';
+  kind: 'no_idle' | 'blocked_work' | 'waiting_human' | 'stale_active_lease' | 'dispatch_failed' | 'completion_missing' | 'active_program_without_work';
   severity: 'info' | 'amber' | 'red';
   message: string;
   work_item_ids?: string[];
   lease_ids?: string[];
+  program_ids?: string[];
 }
 
 export interface OpsWorkPack {
@@ -382,6 +383,17 @@ export interface ProgramSyncResult { ok: true; path: string; source_file: string
 export interface WorkerProfileSyncResult { ok: true; path: string; source_file: string; worker_profiles: OpsWorkerProfile[]; upserted_count: number; }
 
 export interface TopicTrackSyncResult { ok: true; path: string; source_file: string; topic_tracks: OpsTopicTrack[]; upserted_count: number; }
+
+export interface ProgramWorkSeedResult {
+  ok: true;
+  path: string;
+  source_file: string;
+  active_program_count: number;
+  created_count: number;
+  skipped_count: number;
+  work_items: OpsWorkItem[];
+  skipped: Array<{ program_id: string; reason: string; work_item_ids: string[] }>;
+}
 
 export interface OpsWorkerProfilesConfig { workers: OpsWorkerProfile[]; }
 
@@ -867,6 +879,72 @@ export function parseProgramsYaml(raw: string): { programs: unknown[] } {
   const parsed = parseSimpleYaml(raw);
   if (!isObject(parsed) || !Array.isArray(parsed.programs)) throw new Error('program registry YAML must contain programs: [...]');
   return { programs: parsed.programs };
+}
+
+export function seedInitialWorkItemsFromProgramsYamlFile(file: string, opts: OpsStoreOptions & { force?: boolean } = {}): ProgramWorkSeedResult {
+  const raw = readFileSync(file, 'utf8');
+  const parsed = parseProgramsYaml(raw);
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const programs = parsed.programs.map(p => normalizeProgram(p, opts.now));
+  for (const program of programs) appendEvent(path, 'program_upsert', program, opts.now);
+
+  let state = readOpsState(path);
+  const activePrograms = programs.filter(p => p.status === 'active');
+  const created: OpsWorkItem[] = [];
+  const skipped: ProgramWorkSeedResult['skipped'] = [];
+  for (const program of activePrograms.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id))) {
+    const existing = state.work_items.filter(w => w.program_id === program.id && !['cancelled', 'quarantined'].includes(w.state));
+    if (existing.length && opts.force !== true) {
+      skipped.push({ program_id: program.id, reason: 'program already has non-cancelled WorkItems', work_item_ids: existing.map(w => w.id).sort() });
+      continue;
+    }
+    const item = normalizeWorkItem(initialWorkItemForProgram(program), state, opts.now);
+    appendEvent(path, 'work_upsert', item, opts.now);
+    created.push(item);
+    state = readOpsState(path);
+  }
+  return { ok: true, path, source_file: file, active_program_count: activePrograms.length, created_count: created.length, skipped_count: skipped.length, work_items: created, skipped };
+}
+
+function initialWorkItemForProgram(program: OpsProgram): Record<string, unknown> {
+  const lanes = program.lanes.length ? program.lanes : ['general'];
+  const lower = lanes.map(l => l.toLowerCase());
+  const has = (...needles: string[]) => lower.some(l => needles.some(n => l.includes(n)));
+  const code = has('code', 'engineering', 'migration', 'test_repair') || isCodeWritingProgram(program);
+  const privateExtract = has('private', 'meeting', 'commitment', 'relationship', 'followup', 'memory_match', 'dossier');
+  const publicScout = !privateExtract && (has('public_scout', 'world_scout', 'public_enrichment', 'public_professional_context') || isExternalPublicScoutProgram(program));
+  const lane = publicScout ? (lower.find(l => ['public_scout', 'world_scout', 'public_enrichment', 'public_professional_context'].some(n => l.includes(n))) || lanes[0])
+    : code ? (lower.find(l => ['code', 'engineering', 'migration', 'test_repair'].some(n => l.includes(n))) || lanes[0])
+      : privateExtract ? (lower.find(l => ['private', 'meeting', 'commitment', 'relationship', 'followup', 'memory_match', 'dossier'].some(n => l.includes(n))) || lanes[0])
+        : lanes[0];
+  const workerKind = publicScout ? 'minimax' : code ? 'acp_codex' : privateExtract ? 'qwen_local' : 'subagent';
+  const privacyTier = publicScout ? 'P3' : privateExtract ? 'P1_PRIVATE' : code ? 'P2' : 'P2';
+  return {
+    id: `seed-${program.id}-initial-loop`,
+    program_id: program.id,
+    title: `Start ${program.title}`,
+    description: `Initial allocator-owned WorkItem for active program ${program.id}. Convert the program charter into the next concrete reducer/generator step, record artifacts in ops state, and recommend follow-on WorkItems instead of running as an untracked cron/report.`,
+    state: 'ready',
+    priority: program.priority,
+    lane,
+    lanes,
+    worker_kind: workerKind,
+    privacy_tier: privacyTier,
+    source_refs: [{ kind: 'program_registry', ref: program.id }],
+    dependencies: [],
+    acceptance_criteria: [
+      'Work is represented by ops WorkItems/Runs/Leases rather than an untracked cron prompt.',
+      'Completion JSON records artifacts or an explicit discard/blocker.',
+      'Next work recommendations are structured as candidate WorkItems when follow-up is needed.',
+    ],
+    expected_artifacts: [{ kind: 'ops_completion_json' }, { kind: 'work_item_recommendations' }],
+    guardrails: program.approval_gates,
+    approval_gates: program.approval_gates,
+    budget: program.budgets,
+    created_by: 'ops-program-seed',
+    last_state_reason: 'seeded from active program registry',
+  };
 }
 
 export function importRoadmapFile(file: string, opts: OpsStoreOptions = {}): OpsRoadmapImportResult {
@@ -2255,8 +2333,17 @@ function activeWorkCount(state: OpsState, now: Date): number {
 
 function buildOpsAlerts(state: OpsState, now: Date): OpsAuditAlert[] {
   const alerts: OpsAuditAlert[] = [];
+  const nowMs = now.getTime();
+  const recentCutoffMs = nowMs - 24 * 60 * 60 * 1000;
   const ready = state.work_items.filter(w => w.state === 'ready');
-  const activeValidLeases = state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime());
+  const activeValidLeases = state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) > nowMs);
+  const activeProgramsWithoutWork = state.programs.filter(p => p.status === 'active').filter(p => {
+    const items = state.work_items.filter(w => w.program_id === p.id);
+    return !items.some(w => w.state === 'ready' || activeState(w.state) || Date.parse(w.updated_at) >= recentCutoffMs);
+  });
+  if (activeProgramsWithoutWork.length) {
+    alerts.push({ kind: 'active_program_without_work', severity: 'red', message: 'Active programs have no ready, running, or recently updated WorkItems; seed or generate allocator-owned work.', program_ids: activeProgramsWithoutWork.map(p => p.id) });
+  }
   if (ready.length > 0 && activeValidLeases.length === 0 && activeRunCount(state) === 0) {
     alerts.push({ kind: 'no_idle', severity: 'red', message: 'Ready approved work exists but no active run or unexpired active lease exists.', work_item_ids: ready.map(w => w.id) });
   }
