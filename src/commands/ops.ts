@@ -45,6 +45,7 @@ import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookm
 import { readBookmarkDeepRadarInputFile, runBookmarkDeepRadar } from '../core/ops/bookmark-deep-radar.ts';
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
+import { readOpportunityRadarV2JsonFile, readOpportunityRadarV2SurfaceFile, runOpportunityRadarV2, writeOpportunityRadarV2Report } from '../core/ops/opportunity-radar-v2.ts';
 import {
   buildDailyBuildReportSurface,
   buildMorningBriefSurface,
@@ -83,6 +84,7 @@ gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store
 gbrain ops bookmarks deep-radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--artifact-store <path>] [--out <report.json>]
 gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
 gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
+gbrain ops opportunities v2 --topic <id> [--from-state <file>] [--from-delta <file>] [--from-bookmarks <file>] [--from-reduction <file>] [--from-memory-context <file>] --json [--store <ops.jsonl>] [--artifact-store <opportunities.jsonl>] [--out <report.json>]
 gbrain ops opportunities brief-ready --json [--store <path>] [--limit 5] [--out <surface.json>]
 gbrain ops opportunities feedback <candidate-id> --useful|--not-useful [--reason <text>] --json [--store <path>]
 gbrain ops brief morning --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 5] [--out <surface.json>]
@@ -295,6 +297,28 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
   if (sub === 'opportunities' || sub === 'opportunity-radar') {
     const action = rest[0];
     const actionArgs = rest.slice(1);
+    if (action === 'v2' || action === 'radar-v2') {
+      const topicId = flagValue(actionArgs, '--topic') || flagValue(actionArgs, '--topic-id');
+      if (!topicId) throw new Error('gbrain ops opportunities v2 requires --topic <id>');
+      const memoryContextPath = flagValue(actionArgs, '--from-memory-context') || flagValue(actionArgs, '--memory-context');
+      const report = runOpportunityRadarV2({
+        topicId,
+        topicState: readOpportunityRadarV2SurfaceFile(flagValue(actionArgs, '--from-state')),
+        topicDelta: readOpportunityRadarV2SurfaceFile(flagValue(actionArgs, '--from-delta')),
+        bookmarkReports: readOpportunityRadarV2SurfaceFile(flagValue(actionArgs, '--from-bookmarks')),
+        reductionReports: readOpportunityRadarV2SurfaceFile(flagValue(actionArgs, '--from-reduction') || flagValue(actionArgs, '--from-claims')),
+        memoryContext: memoryContextPath ? readOpportunityRadarV2JsonFile(memoryContextPath) : undefined,
+        storePath: storePath(actionArgs),
+        artifactPath: flagValue(actionArgs, '--artifact-store') || flagValue(actionArgs, '--opportunities-store'),
+        minScore: flagValue(actionArgs, '--min-score') ? Number(flagValue(actionArgs, '--min-score')) : undefined,
+        createWorkItems: !hasFlag(actionArgs, '--no-work-items'),
+      });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeOpportunityRadarV2Report(out, report);
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`opportunities=${report.candidates.length}\tarchived=${report.archived_candidates.length}\twork_items=${report.created_work_items.length}`);
+      return;
+    }
     if (action === 'radar' || action === 'run') {
       const input = flagValue(actionArgs, '--input');
       if (!input) throw new Error('gbrain ops opportunities radar requires --input <signals.json>');
@@ -324,7 +348,7 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       else console.log(`${feedback.candidate_id}\t${feedback.value}\tfalse_positive=${feedback.false_positive}`);
       return;
     }
-    throw new Error('gbrain ops opportunities supports: radar, brief-ready, feedback');
+    throw new Error('gbrain ops opportunities supports: radar, v2, brief-ready, feedback');
   }
 
   if (sub === 'brief' || sub === 'briefs' || sub === 'surfaces') {
