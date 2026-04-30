@@ -32,6 +32,12 @@ import {
   validateTopicCurrentStateSurface,
   validateTopicDailyDeltaSurface,
 } from '../core/topics/state-delta.ts';
+import {
+  appendTopicAnswerPackArtifact,
+  compileTopicAnswerPack,
+  readTopicAnswerPackInputs,
+  validateTopicAnswerPack,
+} from '../core/topics/answer-pack.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -47,7 +53,7 @@ function registryPath(args: string[]): string { return flagValue(args, '--file')
 export async function runTopicsCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics state --topic <id> --from-reduction <file> [--from-extraction <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics delta --topic <id> --from-current <file> [--from-previous <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, claim reduction, current-state, and daily-delta surfaces. Public P3/world only; WorkItem creation never performs live web fetching.`);
+    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics state --topic <id> --from-reduction <file> [--from-extraction <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics delta --topic <id> --from-current <file> [--from-previous <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics answer-pack --topic <id> [--domain <domain>] --from-state <file>|--from-reduction <file> [--from-source-spans <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, claim reduction, current-state, daily-delta, and domain-scoped answer-pack surfaces. Public P3/world only; WorkItem creation never performs live web fetching.`);
      return;
    }
 
@@ -131,6 +137,28 @@ export async function runTopicsCommand(_engine: unknown, args: string[]): Promis
     if (hasFlag(rest, '--json') || out) printJson(payload);
     else console.log(`${surface.topic_id}\tnew=${surface.material_new.length}\tchanged=${surface.changed.length}\trepeated=${surface.repeated.length}\tstale=${surface.stale.length}\tcontradicted=${surface.contradicted.length}\tstored_at=${stored_at || 'none'}`);
     if (errors.length) process.exitCode = 1;
+    return;
+  }
+
+  if (sub === 'answer-pack') {
+    const topic = flagValue(rest, '--topic') || rest.find(a => !a.startsWith('--'));
+    if (!topic) throw new Error('gbrain topics answer-pack requires --topic <id>');
+    const fromState = flagValue(rest, '--from-state') || flagValue(rest, '--from-current');
+    const fromReduction = flagValue(rest, '--from-reduction') || flagValue(rest, '--from-claims');
+    const fromSourceSpans = flagValue(rest, '--from-source-spans') || flagValue(rest, '--from-spans');
+    if (!fromState && !fromReduction) throw new Error('gbrain topics answer-pack requires --from-state <file> and/or --from-reduction <file>');
+    const inputs = readTopicAnswerPackInputs({ state: fromState, reduction: fromReduction, sourceSpans: fromSourceSpans });
+    const pack = compileTopicAnswerPack({ topic_id: topic, domain: flagValue(rest, '--domain'), state: inputs.state, reduction: inputs.reduction, source_items: inputs.source_items, source_spans: inputs.source_spans });
+    const errors = validateTopicAnswerPack(pack);
+    const allErrors = [...errors, ...pack.diagnostics.errors];
+    const out = flagValue(rest, '--out');
+    if (out) writeFileSync(out, JSON.stringify(pack, null, 2) + '\n');
+    let stored_at: string | undefined;
+    if (!hasFlag(rest, '--no-store') && !hasFlag(rest, '--dry-run')) stored_at = appendTopicAnswerPackArtifact(pack, flagValue(rest, '--artifact-store'));
+    const payload = { ok: allErrors.length === 0 && !pack.readiness.unanswerable, schema: 'gbrain.topics.answer_pack.compile.v1', errors: allErrors, stored_at, pack };
+    if (hasFlag(rest, '--json') || out) printJson(payload);
+    else console.log(`${pack.topic_id}\treadiness=${pack.readiness.status}\tsupported=${pack.readiness.supported_claims}\tunsupported=${pack.readiness.unsupported_claims}\texcluded=${pack.readiness.excluded_sources}\tstored_at=${stored_at || 'none'}`);
+    if (allErrors.length || pack.readiness.unanswerable) process.exitCode = 1;
     return;
   }
 
