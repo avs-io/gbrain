@@ -21,6 +21,11 @@ import {
   syncProgramsFromYamlFile,
   type WorkItemState,
 } from '../core/ops/kernel.ts';
+import {
+  buildLaunchAgentPlan,
+  heartbeatCheck,
+  heartbeatTemplateMarkdown,
+} from '../core/ops/liveness.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -49,6 +54,9 @@ gbrain ops work complete --id <id> --completion <completion.json> [--store <path
 gbrain ops dispatch --id <work_item_id> --dry-run --json [--store <path>] [--provider <p>] [--model <m>] [--openclaw-task-id <id>] [--session-key <key>]
 gbrain ops reconcile --fixture <openclaw-tasks.json> --json [--store <path>]
 gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
+gbrain ops install-launchagent (--dry-run|--yes) [--json] [--home <dir>] [--gbrain-dir <dir>] [--log-dir <dir>] [--interval-seconds 180]
+gbrain ops heartbeat-check --json [--store <path>] [--max-tick-age-minutes 10]
+gbrain ops heartbeat-template --markdown [--output <HEARTBEAT.md>]
 gbrain ops audit --json [--store <path>]
 
 Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifacts, SupervisorTicks, Interrupts, and BudgetLedger. This command never sends external messages, pushes, mutates trusted memory, or crawls the web.`);
@@ -155,6 +163,45 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     });
     if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.supervise.v1' });
     else console.log(`${result.status}\tclaimed=${result.claimed.length}\talerts=${result.alerts.length}`);
+    return;
+  }
+
+  if (sub === 'install-launchagent') {
+    if (!hasFlag(rest, '--dry-run') && !hasFlag(rest, '--yes')) throw new Error('gbrain ops install-launchagent requires --dry-run or --yes');
+    if (hasFlag(rest, '--dry-run') && hasFlag(rest, '--yes')) throw new Error('choose only one of --dry-run or --yes');
+    const result = buildLaunchAgentPlan({
+      dryRun: hasFlag(rest, '--dry-run'),
+      yes: hasFlag(rest, '--yes'),
+      load: hasFlag(rest, '--load'),
+      homeDir: flagValue(rest, '--home'),
+      launchAgentsDir: flagValue(rest, '--launchagents-dir'),
+      gbrainDir: flagValue(rest, '--gbrain-dir'),
+      logDir: flagValue(rest, '--log-dir'),
+      label: flagValue(rest, '--label'),
+      startIntervalSeconds: numberFlag(rest, '--interval-seconds'),
+    });
+    if (hasFlag(rest, '--json')) printJson(result);
+    else console.log(result.dry_run ? result.plist : `Installed LaunchAgent plist: ${result.plist_path}`);
+    return;
+  }
+
+  if (sub === 'heartbeat-check') {
+    const result = heartbeatCheck({
+      path: storePath(rest),
+      maxTickAgeMinutes: numberFlag(rest, '--max-tick-age-minutes'),
+    });
+    if (hasFlag(rest, '--json')) printJson(result);
+    else if (result.status === 'green') console.log('green');
+    else for (const alert of result.alerts) console.log(`${alert.severity}\t${alert.kind}\t${alert.message}`);
+    return;
+  }
+
+  if (sub === 'heartbeat-template') {
+    if (!hasFlag(rest, '--markdown')) throw new Error('gbrain ops heartbeat-template currently requires --markdown');
+    const markdown = heartbeatTemplateMarkdown();
+    const output = flagValue(rest, '--output');
+    if (output) writeFileSync(output, markdown);
+    console.log(markdown);
     return;
   }
 
