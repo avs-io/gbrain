@@ -9,6 +9,8 @@ export const OPS_EVENT_SCHEMA = 'gbrain.ops.event.v1';
 export const OPS_COMPLETION_SCHEMA = 'gbrain.ops.completion.v1';
 export const OPS_WORK_PACK_SCHEMA = 'gbrain.ops.work_pack.v1';
 export const OPS_DISPATCH_PACKET_SCHEMA = 'gbrain.ops.openclaw_dispatch_packet.v1';
+export const OPS_ROADMAP_FLOW_SCHEMA = 'gbrain.ops.roadmap_flow.v1';
+export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -58,6 +60,7 @@ export interface OpsWorkItem {
   state: WorkItemState;
   priority: number;
   lane: string;
+  lanes?: string[];
   worker_kind: WorkerKind;
   privacy_tier: PrivacyTier;
   source_refs: unknown[];
@@ -67,12 +70,30 @@ export interface OpsWorkItem {
   guardrails?: unknown[];
   approval_gates?: unknown[];
   budget: Record<string, unknown>;
+  roadmap_flow_id?: string;
+  roadmap_step_id?: string;
+  auto_advance?: Record<string, unknown>;
   not_before?: string;
   deadline_at?: string;
   created_by: string;
   created_at: string;
   updated_at: string;
   last_state_reason?: string;
+}
+
+export interface OpsRoadmapFlow {
+  schema: typeof OPS_ROADMAP_FLOW_SCHEMA;
+  id: string;
+  program_id: string;
+  title: string;
+  goal: string;
+  source_file?: string;
+  work_item_ids: string[];
+  auto_advance: boolean;
+  approval_required_before: string[];
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface OpsWorkRun {
@@ -175,6 +196,7 @@ export interface OpsState {
   schema: typeof OPS_KERNEL_SCHEMA;
   programs: OpsProgram[];
   work_items: OpsWorkItem[];
+  roadmap_flows: OpsRoadmapFlow[];
   runs: OpsWorkRun[];
   leases: OpsLease[];
   artifacts: OpsArtifact[];
@@ -254,7 +276,7 @@ export interface OpsDispatchPacket {
   session_id?: string;
 }
 
-type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
+type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
 
 interface OpsEvent<T = unknown> {
   schema: typeof OPS_EVENT_SCHEMA;
@@ -266,6 +288,21 @@ interface OpsEvent<T = unknown> {
 export interface OpsStoreOptions { path?: string; now?: Date; }
 
 export interface ProgramSyncResult { ok: true; path: string; source_file: string; programs: OpsProgram[]; upserted_count: number; }
+
+export interface OpsRoadmapImportResult { ok: true; schema: typeof OPS_ROADMAP_FLOW_SCHEMA; path: string; source_file?: string; flow: OpsRoadmapFlow; programs: OpsProgram[]; work_items: OpsWorkItem[]; }
+
+export interface OpsRoadmapStatusResult {
+  ok: true;
+  schema: typeof OPS_ROADMAP_STATUS_SCHEMA;
+  path: string;
+  flow: OpsRoadmapFlow;
+  current_step?: OpsWorkItem;
+  steps: Array<{ id: string; title: string; state: WorkItemState; roadmap_status: 'ready' | 'running' | 'succeeded' | 'failed' | 'blocked' | 'waiting_human' | 'cancelled' | 'quarantined' | 'approved' | 'missing'; dependencies: string[]; blocked_by: Array<{ id: string; state?: WorkItemState; reason: string }> }>;
+  counts: { total: number; ready: number; running: number; succeeded: number; failed: number; blocked: number; waiting_human: number; approved: number; cancelled: number; quarantined: number; missing: number };
+  next_ready_item?: OpsWorkItem;
+  no_idle_health: { status: 'green' | 'amber' | 'red'; ready_count: number; running_count: number; active_count: number; message: string; recommended_action: 'none' | 'run_supervisor' | 'resolve_blocker' | 'human_input' };
+  blocked_reasons: Array<{ work_item_id: string; reason: string; dependency_id?: string; dependency_state?: WorkItemState }>;
+}
 
 export interface OpsDashboardState {
   generated_at: string;
@@ -298,7 +335,7 @@ export function opsStorePath(): string {
 }
 
 export function emptyOpsState(): OpsState {
-  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
+  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
 }
 
 export function initOpsStore(path = opsStorePath(), now?: Date): { ok: true; path: string; initialized: boolean } {
@@ -337,6 +374,7 @@ function applyEvent(state: OpsState, evt: OpsEvent): void {
   switch (evt.type) {
     case 'program_upsert': upsertById(state.programs, p as OpsProgram); break;
     case 'work_upsert': upsertById(state.work_items, p as OpsWorkItem); break;
+    case 'roadmap_flow_upsert': upsertById(state.roadmap_flows, p as OpsRoadmapFlow); break;
     case 'run_upsert': upsertById(state.runs, p as OpsWorkRun); break;
     case 'lease_upsert': upsertById(state.leases, p as OpsLease); break;
     case 'artifact_upsert': upsertById(state.artifacts, p as OpsArtifact); break;
@@ -390,6 +428,7 @@ export function normalizeWorkItem(input: unknown, existing: OpsState, now?: Date
   const description = String(input.description || input.summary || title).trim();
   const requested = WORK_ITEM_STATES.includes(String(input.state) as WorkItemState) ? String(input.state) as WorkItemState : 'approved';
   const dependencies = stringArray(input.dependencies || input.depends_on);
+  const lanes = stringArray(input.lanes);
   const at = nowIso(now);
   const created = typeof input.created_at === 'string' ? input.created_at : at;
   return {
@@ -399,7 +438,8 @@ export function normalizeWorkItem(input: unknown, existing: OpsState, now?: Date
     description,
     state: normalizeEligibilityState(requested, dependencies, existing),
     priority: numberOr(input.priority, 50),
-    lane: String(input.lane || 'general'),
+    lane: String(input.lane || lanes[0] || 'general'),
+    lanes: lanes.length ? lanes : undefined,
     worker_kind: String(input.worker_kind || 'subagent'),
     privacy_tier: String(input.privacy_tier || 'P2'),
     source_refs: array(input.source_refs),
@@ -409,6 +449,9 @@ export function normalizeWorkItem(input: unknown, existing: OpsState, now?: Date
     guardrails: array(input.guardrails),
     approval_gates: array(input.approval_gates),
     budget: object(input.budget),
+    roadmap_flow_id: typeof input.roadmap_flow_id === 'string' ? input.roadmap_flow_id : undefined,
+    roadmap_step_id: typeof input.roadmap_step_id === 'string' ? input.roadmap_step_id : undefined,
+    auto_advance: isObject(input.auto_advance) ? object(input.auto_advance) : undefined,
     not_before: typeof input.not_before === 'string' ? input.not_before : undefined,
     deadline_at: typeof input.deadline_at === 'string' ? input.deadline_at : undefined,
     created_by: String(input.created_by || 'system'),
@@ -475,6 +518,130 @@ export function parseProgramsYaml(raw: string): { programs: unknown[] } {
   const parsed = parseSimpleYaml(raw);
   if (!isObject(parsed) || !Array.isArray(parsed.programs)) throw new Error('program registry YAML must contain programs: [...]');
   return { programs: parsed.programs };
+}
+
+export function importRoadmapFile(file: string, opts: OpsStoreOptions = {}): OpsRoadmapImportResult {
+  const raw = readFileSync(file, 'utf8');
+  const trimmed = raw.trim();
+  const parsed = trimmed.startsWith('{') || trimmed.startsWith('[') ? JSON.parse(raw) : parseSimpleYaml(raw);
+  return importRoadmapPacket(parsed, { ...opts, sourceFile: file });
+}
+
+export function importRoadmapPacket(packet: unknown, opts: OpsStoreOptions & { sourceFile?: string } = {}): OpsRoadmapImportResult {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const at = nowIso(opts.now);
+  const raw = unwrapRoadmapPacket(packet);
+  const flowId = String(raw.flow_id || raw.id || '').trim();
+  if (!flowId) throw new Error('roadmap flow requires flow_id');
+  const steps = Array.isArray(raw.steps) ? raw.steps : (Array.isArray(raw.work_items) ? raw.work_items : []);
+  if (!steps.length) throw new Error('roadmap flow requires steps: [...]');
+  const programId = String(raw.program_id || (isObject(raw.program) ? raw.program.id : '') || `${flowId}-program`).trim();
+  const autoAdvance = raw.auto_advance !== false;
+  const defaultLanes = stringArray(raw.lanes);
+  const defaultSourceRefs = array(raw.source_refs);
+  const defaultAcceptance = array(raw.acceptance_criteria);
+  const defaultArtifacts = array(raw.expected_artifacts);
+  const defaultGuardrails = array(raw.guardrails);
+  const defaultApprovalGates = array(raw.approval_gates);
+  const workItems = steps.map((stepRaw, index) => normalizeRoadmapStep(stepRaw, {
+    flowId,
+    programId,
+    index,
+    autoAdvance,
+    defaultPriority: numberOr(raw.priority, 50),
+    defaultWorkerKind: String(raw.worker_kind || 'subagent'),
+    defaultPrivacyTier: String(raw.privacy_tier || 'P1_PRIVATE'),
+    defaultLanes,
+    defaultSourceRefs,
+    defaultAcceptance,
+    defaultArtifacts,
+    defaultGuardrails,
+    defaultApprovalGates,
+  }));
+
+  const explicitPrograms = Array.isArray(raw.programs) ? raw.programs : (isObject(raw.program) ? [raw.program] : []);
+  const programs = explicitPrograms.length ? explicitPrograms : [{
+    id: programId,
+    title: String(raw.program_title || raw.title || flowId),
+    objective: String(raw.goal || raw.objective || `Execute roadmap flow ${flowId}`),
+    priority: numberOr(raw.program_priority ?? raw.priority, 50),
+    lanes: defaultLanes,
+    autonomy: { internal_ops_only: true, roadmap_flow_id: flowId },
+    approval_gates: defaultApprovalGates,
+  }];
+  const enqueued = enqueueWorkPacket({ programs, work_items: workItems }, { path, now: opts.now });
+  const flow: OpsRoadmapFlow = {
+    schema: OPS_ROADMAP_FLOW_SCHEMA,
+    id: flowId,
+    program_id: programId,
+    title: String(raw.title || flowId),
+    goal: String(raw.goal || raw.objective || `Execute roadmap flow ${flowId}`),
+    source_file: opts.sourceFile,
+    work_item_ids: enqueued.work_items.map(w => w.id),
+    auto_advance: autoAdvance,
+    approval_required_before: stringArray(raw.approval_required_before),
+    metadata: object(raw.metadata),
+    created_at: typeof raw.created_at === 'string' ? raw.created_at : at,
+    updated_at: at,
+  };
+  appendEvent(path, 'roadmap_flow_upsert', flow, opts.now);
+  return { ok: true, schema: OPS_ROADMAP_FLOW_SCHEMA, path, source_file: opts.sourceFile, flow, programs: enqueued.programs, work_items: enqueued.work_items };
+}
+
+function unwrapRoadmapPacket(packet: unknown): Record<string, any> {
+  if (!isObject(packet)) throw new Error('roadmap packet must be an object');
+  const raw = isObject(packet.roadmap) ? packet.roadmap : (isObject(packet.flow) ? packet.flow : packet);
+  if (!isObject(raw)) throw new Error('roadmap packet must contain an object roadmap/flow');
+  return raw;
+}
+
+function normalizeRoadmapStep(stepRaw: unknown, defaults: {
+  flowId: string;
+  programId: string;
+  index: number;
+  autoAdvance: boolean;
+  defaultPriority: number;
+  defaultWorkerKind: string;
+  defaultPrivacyTier: string;
+  defaultLanes: string[];
+  defaultSourceRefs: unknown[];
+  defaultAcceptance: unknown[];
+  defaultArtifacts: unknown[];
+  defaultGuardrails: unknown[];
+  defaultApprovalGates: unknown[];
+}): Record<string, unknown> {
+  if (!isObject(stepRaw)) throw new Error(`roadmap step ${defaults.index + 1} must be an object`);
+  const id = String(stepRaw.work_item_id || stepRaw.id || '').trim();
+  if (!id) throw new Error(`roadmap step ${defaults.index + 1} requires id`);
+  const lanes = stringArray(stepRaw.lanes).length ? stringArray(stepRaw.lanes) : defaults.defaultLanes;
+  const dependencies = stringArray(stepRaw.dependencies || stepRaw.depends_on || stepRaw.requires);
+  return {
+    id,
+    program_id: String(stepRaw.program_id || defaults.programId),
+    title: String(stepRaw.title || id),
+    description: String(stepRaw.description || stepRaw.summary || stepRaw.goal || stepRaw.title || id),
+    state: typeof stepRaw.state === 'string' ? stepRaw.state : 'approved',
+    priority: numberOr(stepRaw.priority, defaults.defaultPriority),
+    lane: String(stepRaw.lane || lanes[0] || 'roadmap'),
+    lanes,
+    worker_kind: String(stepRaw.worker_kind || defaults.defaultWorkerKind),
+    privacy_tier: String(stepRaw.privacy_tier || defaults.defaultPrivacyTier),
+    source_refs: array(stepRaw.source_refs).length ? array(stepRaw.source_refs) : defaults.defaultSourceRefs,
+    dependencies,
+    acceptance_criteria: array(stepRaw.acceptance_criteria).length ? array(stepRaw.acceptance_criteria) : defaults.defaultAcceptance,
+    expected_artifacts: array(stepRaw.expected_artifacts).length ? array(stepRaw.expected_artifacts) : defaults.defaultArtifacts,
+    guardrails: array(stepRaw.guardrails).length ? array(stepRaw.guardrails) : defaults.defaultGuardrails,
+    approval_gates: array(stepRaw.approval_gates).length ? array(stepRaw.approval_gates) : defaults.defaultApprovalGates,
+    budget: object(stepRaw.budget),
+    roadmap_flow_id: defaults.flowId,
+    roadmap_step_id: String(stepRaw.step_id || id),
+    auto_advance: isObject(stepRaw.auto_advance) ? object(stepRaw.auto_advance) : { enabled: defaults.autoAdvance, flow_id: defaults.flowId, policy: 'auto_advance_if_dependencies_satisfied', order: defaults.index },
+    not_before: typeof stepRaw.not_before === 'string' ? stepRaw.not_before : undefined,
+    deadline_at: typeof stepRaw.deadline_at === 'string' ? stepRaw.deadline_at : undefined,
+    created_by: String(stepRaw.created_by || 'roadmap_import'),
+    last_state_reason: typeof stepRaw.last_state_reason === 'string' ? stepRaw.last_state_reason : undefined,
+  };
 }
 
 interface YamlLine { indent: number; text: string; line: number; }
@@ -605,6 +772,81 @@ export function listWorkItems(filter: { state?: WorkItemState }, opts: OpsStoreO
   let items = readOpsState(opts.path || opsStorePath()).work_items;
   if (filter.state) items = items.filter(w => w.state === filter.state);
   return [...items].sort((a, b) => b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
+}
+
+export function roadmapStatus(flowId: string, opts: OpsStoreOptions = {}): OpsRoadmapStatusResult {
+  const path = opts.path || opsStorePath();
+  const now = opts.now || new Date();
+  const state = readOpsState(path);
+  const flow = state.roadmap_flows.find(f => f.id === flowId);
+  if (!flow) throw new Error(`roadmap flow not found: ${flowId}`);
+  const counts: OpsRoadmapStatusResult['counts'] = { total: flow.work_item_ids.length, ready: 0, running: 0, succeeded: 0, failed: 0, blocked: 0, waiting_human: 0, approved: 0, cancelled: 0, quarantined: 0, missing: 0 };
+  const blockedReasons: OpsRoadmapStatusResult['blocked_reasons'] = [];
+  const steps = flow.work_item_ids.map(id => {
+    const item = state.work_items.find(w => w.id === id);
+    if (!item) {
+      counts.missing++;
+      blockedReasons.push({ work_item_id: id, reason: 'work item missing from ops store' });
+      return { id, title: id, state: 'blocked' as WorkItemState, roadmap_status: 'missing' as const, dependencies: [], blocked_by: [{ id, reason: 'work item missing from ops store' }] };
+    }
+    const blockedBy = roadmapBlockedBy(item, state);
+    const roadmap_status = roadmapStepStatus(item, blockedBy);
+    counts[roadmap_status]++;
+    for (const dep of blockedBy) blockedReasons.push({ work_item_id: item.id, reason: dep.reason, dependency_id: dep.id, dependency_state: dep.state });
+    return { id: item.id, title: item.title, state: item.state, roadmap_status, dependencies: item.dependencies, blocked_by: blockedBy };
+  });
+  const currentStepId = steps.find(s => s.roadmap_status !== 'succeeded')?.id;
+  const currentStep = currentStepId ? state.work_items.find(w => w.id === currentStepId) : undefined;
+  const flowItems = flow.work_item_ids.map(id => state.work_items.find(w => w.id === id)).filter((w): w is OpsWorkItem => !!w);
+  const nextReady = [...flowItems].filter(w => w.state === 'ready').sort(sortWorkItems)[0];
+  const activeFlowIds = new Set(flow.work_item_ids);
+  const activeLeases = state.leases.filter(l => activeFlowIds.has(l.work_item_id) && l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime()).length;
+  const activeRuns = state.runs.filter(r => activeFlowIds.has(r.work_item_id) && ACTIVE_RUN_STATUSES.has(r.status)).length;
+  const runningCount = flowItems.filter(w => activeState(w.state)).length;
+  const activeCount = Math.max(runningCount, activeLeases, activeRuns);
+  let noIdle: OpsRoadmapStatusResult['no_idle_health'];
+  if (activeCount > 0) {
+    noIdle = { status: 'green', ready_count: counts.ready, running_count: runningCount, active_count: activeCount, message: 'Roadmap has active work in progress.', recommended_action: 'none' };
+  } else if (nextReady) {
+    noIdle = { status: 'red', ready_count: counts.ready, running_count: runningCount, active_count: activeCount, message: 'Roadmap has ready work and no active run/lease; supervisor should claim the next item.', recommended_action: 'run_supervisor' };
+  } else if (counts.waiting_human > 0 || blockedReasons.some(r => r.reason.includes('human'))) {
+    noIdle = { status: 'amber', ready_count: counts.ready, running_count: runningCount, active_count: activeCount, message: 'Roadmap is waiting for human approval/input before downstream auto-advance.', recommended_action: 'human_input' };
+  } else if (counts.failed > 0 || counts.blocked > 0 || counts.missing > 0) {
+    noIdle = { status: 'amber', ready_count: counts.ready, running_count: runningCount, active_count: activeCount, message: 'Roadmap has failed or blocked steps; downstream work must not auto-skip.', recommended_action: 'resolve_blocker' };
+  } else {
+    noIdle = { status: 'green', ready_count: counts.ready, running_count: runningCount, active_count: activeCount, message: nextReady ? 'Roadmap has ready work and an active worker.' : 'Roadmap has no no-idle violation.', recommended_action: 'none' };
+  }
+  return { ok: true, schema: OPS_ROADMAP_STATUS_SCHEMA, path, flow, current_step: currentStep, steps, counts, next_ready_item: nextReady, no_idle_health: noIdle, blocked_reasons: blockedReasons };
+}
+
+function roadmapStepStatus(item: OpsWorkItem, blockedBy: Array<{ id: string; state?: WorkItemState; reason: string }>): OpsRoadmapStatusResult['steps'][number]['roadmap_status'] {
+  if (item.state === 'ready') return 'ready';
+  if (item.state === 'leased' || item.state === 'running') return 'running';
+  if (item.state === 'succeeded') return 'succeeded';
+  if (item.state === 'failed') return 'failed';
+  if (item.state === 'waiting_human') return 'waiting_human';
+  if (item.state === 'cancelled') return 'cancelled';
+  if (item.state === 'quarantined') return 'quarantined';
+  if (item.state === 'blocked' || blockedBy.length > 0) return 'blocked';
+  return 'approved';
+}
+
+function roadmapBlockedBy(item: OpsWorkItem, state: OpsState): Array<{ id: string; state?: WorkItemState; reason: string }> {
+  if (item.state === 'ready' || item.state === 'running' || item.state === 'leased' || item.state === 'succeeded') return [];
+  const blocked: Array<{ id: string; state?: WorkItemState; reason: string }> = [];
+  for (const depId of item.dependencies) {
+    const dep = state.work_items.find(w => w.id === depId);
+    if (!dep) blocked.push({ id: depId, reason: `missing dependency ${depId}` });
+    else if (dep.state !== 'succeeded') {
+      const reason = dep.state === 'waiting_human'
+        ? `waiting for human approval/input on dependency ${depId}`
+        : dep.state === 'failed'
+          ? `blocked by failed dependency ${depId}`
+          : `waiting for dependency ${depId} (${dep.state})`;
+      blocked.push({ id: depId, state: dep.state, reason });
+    }
+  }
+  return blocked;
 }
 
 export function buildWorkPack(id: string, opts: OpsStoreOptions = {}): OpsWorkPack {
@@ -1071,15 +1313,32 @@ export function completeWorkItem(id: string, completion: unknown, opts: OpsStore
   const unblocked: OpsWorkItem[] = [];
   if (c.status === 'succeeded') {
     for (const candidate of nextState.work_items) {
-      if (candidate.state !== 'approved') continue;
+      if (candidate.state !== 'approved' && !(candidate.state === 'blocked' && isRoadmapAutoAdvanceItem(candidate))) continue;
       if (!candidate.dependencies.includes(id)) continue;
       if (!depsSatisfied(candidate.dependencies, nextState)) continue;
       const ready: OpsWorkItem = { ...candidate, state: 'ready', updated_at: at, last_state_reason: `dependencies satisfied after ${id}` };
       appendEvent(path, 'work_upsert', ready, opts.now);
       unblocked.push(ready);
     }
+  } else if (c.status === 'failed' || c.status === 'waiting_human') {
+    for (const candidate of nextState.work_items) {
+      if (!isRoadmapAutoAdvanceItem(candidate)) continue;
+      if (!candidate.dependencies.includes(id)) continue;
+      if (terminalState(candidate.state) || activeState(candidate.state)) continue;
+      const reason = c.status === 'waiting_human'
+        ? `roadmap auto-advance blocked: waiting for human approval/input on dependency ${id}`
+        : `roadmap auto-advance blocked: dependency ${id} failed`;
+      const blocked: OpsWorkItem = { ...candidate, state: 'blocked', updated_at: at, last_state_reason: reason };
+      appendEvent(path, 'work_upsert', blocked, opts.now);
+    }
   }
   return { ok: true, work_item: updatedItem, run: updatedRun, released_lease: released, artifacts, unblocked, completion_path: completionPath };
+}
+
+function isRoadmapAutoAdvanceItem(item: OpsWorkItem): boolean {
+  if (item.auto_advance?.enabled === false) return false;
+  if (item.roadmap_flow_id) return true;
+  return !!item.auto_advance;
 }
 
 export interface OpsOpenClawObservedTask {
@@ -1336,7 +1595,7 @@ export function superviseOps(opts: OpsSuperviseOptions = {}): OpsSuperviseResult
 
   state = readOpsState(path);
   for (const item of [...state.work_items].sort(sortWorkItems)) {
-    if (item.state !== 'approved') continue;
+    if (item.state !== 'approved' && !(item.state === 'blocked' && isRoadmapAutoAdvanceItem(item))) continue;
     if (!depsSatisfied(item.dependencies, state)) continue;
     const ready: OpsWorkItem = { ...item, state: 'ready', updated_at: at, last_state_reason: 'dependencies satisfied during supervisor tick' };
     appendEvent(path, 'work_upsert', ready, now);

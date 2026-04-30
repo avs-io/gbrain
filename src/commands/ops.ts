@@ -9,10 +9,12 @@ import {
   completeWorkItem,
   dispatchWorkItem,
   enqueueWorkPacket,
+  importRoadmapFile,
   initOpsStore,
   listPrograms,
   listWorkItems,
   opsStatus,
+  roadmapStatus,
   reconcileOpenClawTasks,
   opsStorePath,
   renderWorkPackMarkdown,
@@ -51,6 +53,8 @@ gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
 gbrain ops work pack --id <id> [--out <path>] [--json] [--store <path>]
 gbrain ops work complete --id <id> --completion <completion.json> [--store <path>] [--json]
+gbrain ops roadmap import --file <roadmap.yaml|json> --json [--store <path>]
+gbrain ops roadmap status --flow-id <id> --json [--store <path>]
 gbrain ops dispatch --id <work_item_id> --dry-run --json [--store <path>] [--provider <p>] [--model <m>] [--openclaw-task-id <id>] [--session-key <key>]
 gbrain ops reconcile --fixture <openclaw-tasks.json> --json [--store <path>]
 gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
@@ -116,6 +120,11 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
 
   if (sub === 'work') {
     await runWork(rest);
+    return;
+  }
+
+  if (sub === 'roadmap') {
+    await runRoadmap(rest);
     return;
   }
 
@@ -214,6 +223,28 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
   }
 
   throw new Error(`Unknown ops subcommand: ${sub}`);
+}
+
+async function runRoadmap(args: string[]): Promise<void> {
+  const action = args[0];
+  const rest = args.slice(1);
+  if (action === 'import') {
+    const file = flagValue(rest, '--file');
+    if (!file) throw new Error('gbrain ops roadmap import requires --file <roadmap.yaml|json>');
+    const result = importRoadmapFile(file, { path: storePath(rest) });
+    if (hasFlag(rest, '--json')) printJson(result);
+    else console.log(`${result.flow.id}\titems=${result.work_items.length}\tauto_advance=${result.flow.auto_advance}`);
+    return;
+  }
+  if (action === 'status') {
+    const flowId = flagValue(rest, '--flow-id');
+    if (!flowId) throw new Error('gbrain ops roadmap status requires --flow-id <id>');
+    const result = roadmapStatus(flowId, { path: storePath(rest) });
+    if (hasFlag(rest, '--json')) printJson(result);
+    else console.log(`${result.flow.id}\tcurrent=${result.current_step?.id || 'complete'}\tready=${result.counts.ready}\trunning=${result.counts.running}\tblocked=${result.counts.blocked}`);
+    return;
+  }
+  throw new Error(`Unknown ops roadmap subcommand: ${action || '(missing)'}`);
 }
 
 async function runWork(args: string[]): Promise<void> {
