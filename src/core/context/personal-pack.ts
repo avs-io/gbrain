@@ -128,7 +128,7 @@ function evidenceFromRefs(refs: PersonalContextInput['evidence'] = []): Personal
   }));
 }
 
-function safeEvidenceRef(ref: ClaimEvidenceRef): PersonalContextEvidenceRef {
+function safeEvidenceRef(ref: ClaimEvidenceRef | PersonalContextEvidenceRef): PersonalContextEvidenceRef {
   return {
     span_id: ref.span_id,
     quote: redactLocalPaths(ref.quote),

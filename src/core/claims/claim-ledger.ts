@@ -2,6 +2,11 @@ import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { configDir } from '../config.ts';
+import {
+  parseSourceSpanRef,
+  sourceItemIdForPage,
+  type SourceSpanRefKind,
+} from '../evidence/source-bridge.ts';
 import { parseSpanId } from '../evidence/source-window.ts';
 import {
   conservativeNamespacePolicyDefaults,
@@ -11,12 +16,17 @@ import {
   type GBrainSensitivity,
 } from '../memory/namespace-policy.ts';
 
-export type ClaimType = 'identity' | 'preference' | 'project_status' | 'decision' | 'open_loop' | 'relationship' | 'world' | 'procedure' | 'other';
-export type ClaimStatus = 'proposed' | 'trusted' | 'stale' | 'superseded' | 'contradicted' | 'rejected';
+export type ClaimType = 'identity' | 'preference' | 'project_status' | 'decision' | 'open_loop' | 'relationship' | 'world' | 'world_claim' | 'procedure' | 'other';
+export type ClaimStatus = 'proposed' | 'verified' | 'trusted' | 'stale' | 'superseded' | 'contradicted' | 'rejected';
 export type ClaimEdgeType = 'stales' | 'supersedes' | 'contradicts' | 'supports' | 'refines';
+export type ClaimEvidenceRole = 'supports' | 'contradicts' | 'context';
 
 export interface ClaimEvidenceRef {
   span_id: string;
+  ref_kind: SourceSpanRefKind;
+  source_item_id: string;
+  authority: 'source_span';
+  role: ClaimEvidenceRole;
   quote: string;
   quote_hash: string;
   source_id?: string;
@@ -24,6 +34,8 @@ export interface ClaimEvidenceRef {
   section?: string;
   start_line?: number;
   end_line?: number;
+  start_char?: number;
+  end_char?: number;
 }
 
 export interface ClaimEdge {
@@ -58,12 +70,51 @@ export interface ClaimLedgerRecord {
   };
 }
 
+export interface ClaimRow {
+  id: string;
+  claim: string;
+  type: ClaimType;
+  status: ClaimStatus;
+  namespace: GBrainNamespace;
+  privacy: GBrainPrivacy;
+  sensitivity: GBrainSensitivity;
+  confidence: number;
+  observed_at: string;
+  valid_from?: string;
+  valid_to?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ClaimEvidenceRow {
+  claim_id: string;
+  source_span_ref: string;
+  ref_kind: SourceSpanRefKind;
+  source_item_id: string;
+  role: ClaimEvidenceRole;
+  quote_hash: string;
+}
+
+export interface ClaimEdgeRow {
+  from_claim_id: string;
+  to_claim_id: string;
+  type: ClaimEdgeType;
+  note?: string;
+}
+
+export interface ClaimLedgerTables {
+  claims: ClaimRow[];
+  claim_evidence: ClaimEvidenceRow[];
+  claim_edges: ClaimEdgeRow[];
+}
+
 export interface ClaimLedgerResult {
   ok: boolean;
-  action: 'validate' | 'propose' | 'list' | 'show';
+  action: 'validate' | 'propose' | 'verify' | 'list' | 'show';
   errors?: string[];
   record?: ClaimLedgerRecord;
   records?: ClaimLedgerRecord[];
+  tables?: ClaimLedgerTables;
   count?: number;
   ledgerPath?: string;
   dryRun?: boolean;
@@ -72,9 +123,10 @@ export interface ClaimLedgerResult {
 }
 
 const LEDGER_FILE = 'claim-ledger.jsonl';
-const CLAIM_TYPES = new Set<ClaimType>(['identity', 'preference', 'project_status', 'decision', 'open_loop', 'relationship', 'world', 'procedure', 'other']);
-const CLAIM_STATUSES = new Set<ClaimStatus>(['proposed', 'trusted', 'stale', 'superseded', 'contradicted', 'rejected']);
+const CLAIM_TYPES = new Set<ClaimType>(['identity', 'preference', 'project_status', 'decision', 'open_loop', 'relationship', 'world', 'world_claim', 'procedure', 'other']);
+const CLAIM_STATUSES = new Set<ClaimStatus>(['proposed', 'verified', 'trusted', 'stale', 'superseded', 'contradicted', 'rejected']);
 const CLAIM_EDGE_TYPES = new Set<ClaimEdgeType>(['stales', 'supersedes', 'contradicts', 'supports', 'refines']);
+const CLAIM_EVIDENCE_ROLES = new Set<ClaimEvidenceRole>(['supports', 'contradicts', 'context']);
 
 export function claimLedgerPath(): string {
   return join(configDir(), LEDGER_FILE);
@@ -104,10 +156,28 @@ function validIsoDate(value: unknown): boolean {
   return typeof value === 'string' && value.length > 0 && !Number.isNaN(Date.parse(value));
 }
 
-export function evidenceRefFromSpan(spanId: string, quote: string, quoteHash = hashQuote(quote)): ClaimEvidenceRef {
+export function evidenceRefFromSpan(spanId: string, quote: string, quoteHash = hashQuote(quote), role: ClaimEvidenceRole = 'supports'): ClaimEvidenceRef {
+  const parsedRef = parseSourceSpanRef(spanId);
+  if (parsedRef.ref_kind === 'srcspan1') {
+    return {
+      span_id: spanId,
+      ref_kind: 'srcspan1',
+      source_item_id: parsedRef.source_item_id!,
+      authority: 'source_span',
+      role,
+      quote,
+      quote_hash: quoteHash,
+      start_char: parsedRef.start_char,
+      end_char: parsedRef.end_char,
+    };
+  }
   const parsed = parseSpanId(spanId);
   return {
     span_id: spanId,
+    ref_kind: 'gbs1',
+    source_item_id: sourceItemIdForPage(parsed.sourceId, parsed.slug),
+    authority: 'source_span',
+    role,
     quote,
     quote_hash: quoteHash,
     source_id: parsed.sourceId,
@@ -162,6 +232,40 @@ export function buildClaimLedgerRecord(input: {
   };
 }
 
+export function toClaimLedgerTables(records: ClaimLedgerRecord[]): ClaimLedgerTables {
+  return {
+    claims: records.map(r => ({
+      id: r.id,
+      claim: r.claim,
+      type: r.type,
+      status: r.status,
+      namespace: r.namespace,
+      privacy: r.privacy,
+      sensitivity: r.sensitivity,
+      confidence: r.confidence,
+      observed_at: r.observed_at,
+      valid_from: r.valid_from,
+      valid_to: r.valid_to,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    })),
+    claim_evidence: records.flatMap(r => r.evidence.map(ev => ({
+      claim_id: r.id,
+      source_span_ref: ev.span_id,
+      ref_kind: ev.ref_kind,
+      source_item_id: ev.source_item_id,
+      role: ev.role,
+      quote_hash: ev.quote_hash,
+    }))),
+    claim_edges: records.flatMap(r => (r.edges || []).map(edge => ({
+      from_claim_id: r.id,
+      to_claim_id: edge.claim_id,
+      type: edge.type,
+      note: edge.note,
+    }))),
+  };
+}
+
 export function validateClaimLedgerRecord(record: unknown): string[] {
   const errors: string[] = [];
   if (!isObject(record)) return ['record must be a JSON object'];
@@ -180,6 +284,7 @@ export function validateClaimLedgerRecord(record: unknown): string[] {
   if (record.valid_to !== undefined && !validIsoDate(record.valid_to)) errors.push('valid_to must be an ISO-like date string when present');
   if (record.valid_from && record.valid_to && Date.parse(record.valid_to) < Date.parse(record.valid_from)) errors.push('valid_to must not be before valid_from');
 
+  let supportingSourceSpanCount = 0;
   if (!Array.isArray(record.evidence) || record.evidence.length === 0) {
     errors.push('evidence must include at least one source span');
   } else {
@@ -189,15 +294,27 @@ export function validateClaimLedgerRecord(record: unknown): string[] {
         errors.push(`${prefix} must be an object`);
         return;
       }
+      if (ev.authority !== 'source_span') errors.push(`${prefix}.authority must be source_span`);
+      if (!CLAIM_EVIDENCE_ROLES.has(ev.role)) errors.push(`${prefix}.role must be one of: ${Array.from(CLAIM_EVIDENCE_ROLES).join(', ')}`);
+      if (ev.role === 'supports' && ev.authority === 'source_span') supportingSourceSpanCount++;
       if (typeof ev.span_id !== 'string') errors.push(`${prefix}.span_id is required`);
       else {
         try {
-          const parsed = parseSpanId(ev.span_id);
-          if (ev.source_id !== undefined && ev.source_id !== parsed.sourceId) errors.push(`${prefix}.source_id must match span_id`);
-          if (ev.slug !== undefined && ev.slug !== parsed.slug) errors.push(`${prefix}.slug must match span_id`);
-          if (ev.section !== undefined && ev.section !== parsed.section) errors.push(`${prefix}.section must match span_id`);
-          if (ev.start_line !== undefined && ev.start_line !== parsed.startLine) errors.push(`${prefix}.start_line must match span_id`);
-          if (ev.end_line !== undefined && ev.end_line !== parsed.endLine) errors.push(`${prefix}.end_line must match span_id`);
+          const parsedRef = parseSourceSpanRef(ev.span_id);
+          if (ev.ref_kind !== parsedRef.ref_kind) errors.push(`${prefix}.ref_kind must match span_id`);
+          if (parsedRef.ref_kind === 'gbs1') {
+            const parsed = parseSpanId(ev.span_id);
+            if (ev.source_item_id !== sourceItemIdForPage(parsed.sourceId, parsed.slug)) errors.push(`${prefix}.source_item_id must match span_id`);
+            if (ev.source_id !== undefined && ev.source_id !== parsed.sourceId) errors.push(`${prefix}.source_id must match span_id`);
+            if (ev.slug !== undefined && ev.slug !== parsed.slug) errors.push(`${prefix}.slug must match span_id`);
+            if (ev.section !== undefined && ev.section !== parsed.section) errors.push(`${prefix}.section must match span_id`);
+            if (ev.start_line !== undefined && ev.start_line !== parsed.startLine) errors.push(`${prefix}.start_line must match span_id`);
+            if (ev.end_line !== undefined && ev.end_line !== parsed.endLine) errors.push(`${prefix}.end_line must match span_id`);
+          } else {
+            if (ev.source_item_id !== parsedRef.source_item_id) errors.push(`${prefix}.source_item_id must match span_id`);
+            if (ev.start_char !== parsedRef.start_char) errors.push(`${prefix}.start_char must match span_id`);
+            if (ev.end_char !== parsedRef.end_char) errors.push(`${prefix}.end_char must match span_id`);
+          }
         } catch (err) {
           errors.push(`${prefix}.span_id malformed: ${err instanceof Error ? err.message : String(err)}`);
         }
@@ -207,6 +324,7 @@ export function validateClaimLedgerRecord(record: unknown): string[] {
       if (typeof ev.quote === 'string' && typeof ev.quote_hash === 'string' && ev.quote_hash !== hashQuote(ev.quote)) errors.push(`${prefix}.quote_hash must match quote`);
     });
   }
+  if (record.status === 'verified' && supportingSourceSpanCount === 0) errors.push('verified claims require at least one supporting source_span evidence');
 
   if (record.edges !== undefined) {
     if (!Array.isArray(record.edges)) errors.push('edges must be an array when present');
@@ -254,16 +372,24 @@ function readLedger(path: string): { records: ClaimLedgerRecord[]; errors: strin
   return { records, errors };
 }
 
-export function listClaimLedgerRecords(opts: { ledgerPath?: string } = {}): ClaimLedgerResult {
+export function listClaimLedgerRecords(opts: { ledgerPath?: string; tables?: boolean } = {}): ClaimLedgerResult {
   const ledgerPath = opts.ledgerPath || claimLedgerPath();
   const { records, errors } = readLedger(ledgerPath);
-  return { ok: errors.length === 0, action: 'list', records, count: records.length, errors: errors.length ? errors : undefined, ledgerPath };
+  return { ok: errors.length === 0, action: 'list', records, tables: opts.tables ? toClaimLedgerTables(records) : undefined, count: records.length, errors: errors.length ? errors : undefined, ledgerPath };
 }
 
 export function showClaimLedgerRecord(id: string, opts: { ledgerPath?: string } = {}): ClaimLedgerResult {
   const listed = listClaimLedgerRecords(opts);
   const record = (listed.records || []).find(r => r.id === id);
   return { ...listed, action: 'show', record, records: undefined, count: record ? 1 : 0, ok: listed.ok && !!record, errors: record ? listed.errors : [...(listed.errors || []), `claim not found: ${id}`] };
+}
+
+export function verifyClaimLedgerRecord(id: string, opts: { ledgerPath?: string } = {}): ClaimLedgerResult {
+  const result = showClaimLedgerRecord(id, opts);
+  if (!result.record) return { ...result, action: 'verify' };
+  const record = { ...result.record, status: 'verified' as ClaimStatus, updated_at: new Date().toISOString() };
+  const errors = validateClaimLedgerRecord(record);
+  return { ok: errors.length === 0, action: 'verify', record, errors: errors.length ? errors : undefined, ledgerPath: result.ledgerPath, dryRun: true, queued: false };
 }
 
 export function enqueueClaimLedgerRecord(record: ClaimLedgerRecord, opts: { dryRun?: boolean; ledgerPath?: string } = {}): ClaimLedgerResult {

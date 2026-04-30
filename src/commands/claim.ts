@@ -8,6 +8,7 @@ import {
   listClaimLedgerRecords,
   showClaimLedgerRecord,
   validateClaimLedgerRecord,
+  verifyClaimLedgerRecord,
   type ClaimEdge,
   type ClaimStatus,
   type ClaimType,
@@ -117,7 +118,7 @@ export async function runClaimCommand(args: string[], hydrationEngine?: Pick<Bra
     const claim = flagValue(subArgs, '--claim');
     const quote = flagValue(subArgs, '--quote');
     if (!spanId || !claim) {
-      console.error('Usage: gbrain claim propose --from-span <gbs1:...> --claim "..." [--quote "..."] [--type decision] [--namespace personal] [--privacy private] [--sensitivity high] [--confidence 0.7] [--yes] [--json]');
+      console.error('Usage: gbrain claims propose --from-span <gbs1:...> --claim "..." [--quote "..."] [--type world_claim] [--namespace personal] [--privacy private] [--sensitivity high] [--confidence 0.7] [--yes] [--json]');
       process.exit(1);
     }
     let ownedEngine: BrainEngine | undefined;
@@ -162,7 +163,7 @@ export async function runClaimCommand(args: string[], hydrationEngine?: Pick<Bra
   }
 
   if (sub === 'list') {
-    const result = listClaimLedgerRecords();
+    const result = listClaimLedgerRecords({ tables: hasFlag(subArgs, '--tables') });
     if (hasFlag(subArgs, '--json')) printJson(result);
     else if (!result.records?.length) console.log(`No claim ledger records found at ${result.ledgerPath}`);
     else console.log(result.records.map(r => `${r.id}\t${r.status}\t${r.namespace}/${r.privacy}/${r.sensitivity}\t${r.type}\t${r.confidence}\t${r.claim}`).join('\n'));
@@ -170,10 +171,24 @@ export async function runClaimCommand(args: string[], hydrationEngine?: Pick<Bra
     return;
   }
 
+  if (sub === 'verify') {
+    const id = subArgs[0] || flagValue(subArgs, '--id');
+    if (!id) {
+      console.error('Usage: gbrain claims verify <claim_id> [--json]');
+      process.exit(1);
+    }
+    const result = verifyClaimLedgerRecord(id);
+    if (hasFlag(subArgs, '--json')) printJson(result);
+    else if (result.ok) console.log(`Claim can be verified after review: ${id}`);
+    else console.error(`Claim cannot be verified:\n- ${(result.errors || []).join('\n- ')}`);
+    if (!result.ok) process.exit(1);
+    return;
+  }
+
   if (sub === 'show') {
     const id = subArgs[0] || flagValue(subArgs, '--id');
     if (!id) {
-      console.error('Usage: gbrain claim show <claim_id> [--json]');
+      console.error('Usage: gbrain claims show <claim_id> [--json]');
       process.exit(1);
     }
     const result = showClaimLedgerRecord(id);
@@ -197,10 +212,11 @@ export async function runClaimCommand(args: string[], hydrationEngine?: Pick<Bra
 }
 
 function printHelp(): void {
-  console.log(`gbrain claim propose --from-span <gbs1:...> --claim "..." [--quote "..."] [--type decision] [--namespace personal] [--privacy private] [--sensitivity high] [--confidence 0.7] [--yes] [--json]
-gbrain claim validate --record <record.json> [--json]
-gbrain claim list [--json]
-gbrain claim show <claim_id> [--json]
+  console.log(`gbrain claims propose --from-span <gbs1:...> --claim "..." [--quote "..."] [--type world_claim] [--namespace personal] [--privacy private] [--sensitivity high] [--confidence 0.7] [--yes] [--json]
+gbrain claims verify <claim_id> [--json]
+gbrain claims validate --record <record.json> [--json]
+gbrain claims list [--json] [--tables]
+gbrain claims show <claim_id> [--json]
 
-Minimal review-only claim ledger. If --quote is omitted, propose hydrates it from the exact gbs1 source span. No trusted pages are edited; proposed claims must cite exact gbs1 source spans plus quote hashes. Namespace/privacy/sensitivity default conservatively to personal/private/high.`);
+Minimal review-only claim ledger. If --quote is omitted, propose hydrates it from the exact gbs1 source span. No trusted pages are edited; proposed claims must cite exact source_span refs plus quote hashes. Namespace/privacy/sensitivity default conservatively to personal/private/high.`);
 }

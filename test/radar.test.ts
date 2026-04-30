@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test';
 import type { ClaimLedgerRecord } from '../src/core/claims/claim-ledger.ts';
-import { hashQuote } from '../src/core/claims/claim-ledger.ts';
+import { evidenceRefFromSpan, hashQuote } from '../src/core/claims/claim-ledger.ts';
 import { buildRadarReport, radarCandidateFromClaimLedgerRecord, radarCandidateFromScoutObservation, scoreRadarCandidates } from '../src/core/memory/radar.ts';
 import type { ScoutObservation } from '../src/core/memory/scoutnet.ts';
 
@@ -105,7 +105,7 @@ describe('radar surfacing candidates', () => {
       sensitivity: 'medium',
       confidence: 0.8,
       observed_at: '2026-04-29T07:00:00.000Z',
-      evidence: [{ span_id: 'gbs1:src:slug#main:L1-L2', quote, quote_hash: hashQuote(quote), source_id: 'src', slug: 'slug', section: 'main', start_line: 1, end_line: 2 }],
+      evidence: [evidenceRefFromSpan('gbs1:src:slug#main:L1-L2', quote)],
       review_required: true,
       guardrails: { trusted_pages_edited: false, external_messages_sent: false, global_config_changed: false, record_is_review_only: true },
     };

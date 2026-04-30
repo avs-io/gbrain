@@ -9,7 +9,9 @@ import {
   enqueueClaimLedgerRecord,
   evidenceRefFromSpan,
   hashQuote,
+  toClaimLedgerTables,
   validateClaimLedgerRecord,
+  verifyClaimLedgerRecord,
 } from '../src/core/claims/claim-ledger.ts';
 import { hydrateEvidenceFromSpan } from '../src/commands/claim.ts';
 
@@ -48,6 +50,16 @@ describe('claim ledger minimal', () => {
     expect(validateClaimLedgerRecord(validRecord({ namespace: 'world', privacy: 'public', sensitivity: 'high' }))).toContain('public privacy cannot be paired with high or restricted sensitivity');
   });
 
+  test('verified status requires at least one supporting source_span', () => {
+    const noEvidence = validRecord({ status: 'verified', evidence: [] });
+    expect(validateClaimLedgerRecord(noEvidence)).toContain('evidence must include at least one source span');
+
+    const contextOnly = validRecord({ status: 'verified', evidence: [evidenceRefFromSpan(spanId, quote, hashQuote(quote), 'context')] });
+    expect(validateClaimLedgerRecord(contextOnly)).toContain('verified claims require at least one supporting source_span evidence');
+
+    expect(validateClaimLedgerRecord(validRecord({ status: 'verified' }))).toEqual([]);
+  });
+
   test('trusted status is rejected for JSONL review-only layer', () => {
     expect(validateClaimLedgerRecord(validRecord({ status: 'trusted' }))).toContain(
       'JSONL claim ledger cannot mark claims trusted; trusted status requires reviewed DB/page integration in a later PR',
@@ -66,6 +78,67 @@ describe('claim ledger minimal', () => {
       evidence: [{ ...evidenceRefFromSpan(spanId, quote), start_line: 99 }],
     });
     expect(validateClaimLedgerRecord(record)).toContain('evidence[0].start_line must match span_id');
+  });
+
+  test('claim ledger projects stable claims, claim_evidence, and claim_edges rows', () => {
+    const older = validRecord({ id: 'claim_20260429T070000Z_aaaaaaaaaaaa' });
+    const newer = validRecord({
+      id: 'claim_20260429T071000Z_bbbbbbbbbbbb',
+      claim: 'Verdict was not suggested during the discussion.',
+      status: 'contradicted',
+      edges: [{ type: 'contradicts', claim_id: older.id, note: 'false claim lure contradicted by exact quoted span' }],
+    });
+    const tables = toClaimLedgerTables([older, newer]);
+    expect(tables.claims.map(row => row.id)).toEqual([older.id, newer.id]);
+    expect(tables.claim_evidence).toHaveLength(2);
+    expect(tables.claim_evidence[0]).toMatchObject({ claim_id: older.id, source_span_ref: spanId, role: 'supports' });
+    expect(tables.claim_edges).toEqual([{ from_claim_id: newer.id, to_claim_id: older.id, type: 'contradicts', note: 'false claim lure contradicted by exact quoted span' }]);
+  });
+
+  test('contradicted and superseded claims coexist append-only instead of deleting history', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-claims-coexist-'));
+    const ledgerPath = join(dir, 'claim-ledger.jsonl');
+    const falseLure = validRecord({
+      id: 'claim_20260429T070000Z_111111111111',
+      claim: 'False lure: Verdict was never discussed.',
+      status: 'contradicted',
+    });
+    const correction = validRecord({
+      id: 'claim_20260429T071000Z_222222222222',
+      claim: 'Verdict was suggested during the World 8 discussion.',
+      status: 'verified',
+      edges: [{ type: 'contradicts', claim_id: falseLure.id }],
+    });
+    const superseded = validRecord({
+      id: 'claim_20260429T072000Z_333333333333',
+      claim: 'Verdict naming context was refined after source review.',
+      status: 'superseded',
+      edges: [{ type: 'supersedes', claim_id: correction.id }],
+    });
+
+    expect(enqueueClaimLedgerRecord(falseLure, { ledgerPath }).ok).toBe(true);
+    expect(enqueueClaimLedgerRecord(correction, { ledgerPath }).ok).toBe(true);
+    expect(enqueueClaimLedgerRecord(superseded, { ledgerPath }).ok).toBe(true);
+    const lines = readFileSync(ledgerPath, 'utf-8').trim().split('\n').map(line => JSON.parse(line));
+    expect(lines.map(line => line.status)).toEqual(['contradicted', 'verified', 'superseded']);
+    expect(lines.map(line => line.id)).toEqual([falseLure.id, correction.id, superseded.id]);
+  });
+
+  test('verify is deterministic and refuses claims without supporting source spans', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-claims-verify-'));
+    const ledgerPath = join(dir, 'claim-ledger.jsonl');
+    const record = validRecord();
+    expect(enqueueClaimLedgerRecord(record, { ledgerPath }).ok).toBe(true);
+    const verified = verifyClaimLedgerRecord(record.id, { ledgerPath });
+    expect(verified.ok).toBe(true);
+    expect(verified.record?.status).toBe('verified');
+    expect(readFileSync(ledgerPath, 'utf-8').trim().split('\n')).toHaveLength(1);
+
+    const contextOnly = validRecord({ id: 'claim_20260429T070000Z_cccccccccccc', claim: 'Context-only lure should not verify.', evidence: [evidenceRefFromSpan(spanId, quote, hashQuote(quote), 'context')] });
+    expect(enqueueClaimLedgerRecord(contextOnly, { ledgerPath }).ok).toBe(true);
+    const rejected = verifyClaimLedgerRecord(contextOnly.id, { ledgerPath });
+    expect(rejected.ok).toBe(false);
+    expect(rejected.errors).toContain('verified claims require at least one supporting source_span evidence');
   });
 
   test('enqueue is append-only, dry-run by default, and duplicate-stable', () => {
@@ -90,7 +163,7 @@ describe('claim ledger minimal', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-claims-cli-'));
     const dry = spawnSync(
       process.execPath,
-      ['run', 'src/cli.ts', 'claim', 'propose', '--from-span', spanId, '--claim', 'Verdict was suggested in the World 8 discussion.', '--quote', quote, '--type', 'decision', '--json'],
+      ['run', 'src/cli.ts', 'claims', 'propose', '--from-span', spanId, '--claim', 'Verdict was suggested in the World 8 discussion.', '--quote', quote, '--type', 'world_claim', '--json'],
       { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: dir }, encoding: 'utf-8' },
     );
     expect(dry.status).toBe(0);
@@ -101,7 +174,7 @@ describe('claim ledger minimal', () => {
 
     const write = spawnSync(
       process.execPath,
-      ['run', 'src/cli.ts', 'claim', 'propose', '--from-span', spanId, '--claim', 'Verdict was suggested in the World 8 discussion.', '--quote', quote, '--type', 'decision', '--namespace', 'world', '--privacy', 'internal', '--sensitivity', 'medium', '--yes', '--json'],
+      ['run', 'src/cli.ts', 'claims', 'propose', '--from-span', spanId, '--claim', 'Verdict was suggested in the World 8 discussion.', '--quote', quote, '--type', 'world_claim', '--namespace', 'world', '--privacy', 'internal', '--sensitivity', 'medium', '--yes', '--json'],
       { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: dir }, encoding: 'utf-8' },
     );
     expect(write.status).toBe(0);
@@ -118,7 +191,7 @@ describe('claim ledger minimal', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-claims-policy-cli-'));
     const result = spawnSync(
       process.execPath,
-      ['run', 'src/cli.ts', 'claim', 'propose', '--from-span', spanId, '--claim', 'Invalid public sensitive world claim.', '--quote', quote, '--namespace', 'world', '--privacy', 'public', '--sensitivity', 'high', '--yes', '--json'],
+      ['run', 'src/cli.ts', 'claims', 'propose', '--from-span', spanId, '--claim', 'Invalid public sensitive world claim.', '--quote', quote, '--namespace', 'world', '--privacy', 'public', '--sensitivity', 'high', '--yes', '--json'],
       { cwd: join(import.meta.dir, '..'), env: { ...process.env, HOME: dir }, encoding: 'utf-8' },
     );
     expect(result.status).toBe(1);

@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'radar', 'personal']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'claims', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'radar', 'personal']);
 
 async function main() {
   // Parse global flags (--quiet / --progress-json / --progress-interval)
@@ -325,7 +325,7 @@ async function handleCliOnly(command: string, args: string[]) {
     await runMemory(args);
     return;
   }
-  if (command === 'claim') {
+  if (command === 'claim' || command === 'claims') {
     const { runClaimCommand } = await import('./commands/claim.ts');
     await runClaimCommand(args);
     return;
