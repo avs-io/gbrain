@@ -1,12 +1,24 @@
 topic_tracks:
   - id: world-sovereign-ai-india
     slug: sovereign-ai-india
+    tier: T0
     recipe_slug: sovereign-ai-india
     program_id: world-sovereign-ai-india
     title: Sovereign AI India
     status: active
-    priority: 90
+    priority: 95
     objective: Maintain dynamic public-world intelligence on Indian sovereign AI policy, compute, company, procurement, and institutional signals.
+    why_it_matters_to_chief: India sovereign AI is a high-leverage public-world topic for Chief because policy, compute procurement, foundation-model programs, and Indian AI company moves can change strategic timing, partnerships, capital allocation, and OpenClaw/GBrain opportunity surfaces.
+    decision_surfaces:
+      - weekly sovereign AI strategy brief
+      - compute procurement and policy watchlist
+      - company and institution opportunity radar
+      - agent handoff for deep scout or action proposal
+    standing_questions:
+      - What new Indian government policy, procurement, or funding signal changes the sovereign AI landscape?
+      - Which Indian AI companies or institutions gained meaningful capability, distribution, compute, or regulatory advantage?
+      - What concrete wedge, partnership, product, or investment opportunity becomes newly timed for Chief?
+      - What claims are contradicted, stale, under-evidenced, or require verification before surfacing?
     seed_queries:
       - India sovereign AI compute policy IndiaAI GPU tender
       - MeitY sovereign AI foundation model India
@@ -43,6 +55,45 @@ topic_tracks:
       - procurement_signal
       - named_people
       - relevance_to_chief
+    research_plan:
+      maps:
+        institutions:
+          - MeitY
+          - IndiaAI Mission
+          - Digital India Corporation
+          - CDAC
+          - Bhashini
+        companies:
+          - Sarvam AI
+          - Krutrim
+          - Reliance
+          - Tata Communications
+          - Yotta
+        surfaces:
+          - policy
+          - compute
+          - models
+          - procurement
+          - talent
+      discovery_queries:
+        - India sovereign AI compute policy IndiaAI GPU tender
+        - MeitY sovereign AI foundation model India
+        - IndiaAI mission compute capacity sovereign AI
+        - Bhashini sovereign AI model India
+        - Sovereign AI India procurement GPU cloud
+      extraction_targets:
+        - claim
+        - entity
+        - event
+        - problem_signal
+        - opportunity_signal
+        - contradiction
+      opportunity_lenses:
+        - OpenClaw or GBrain product implication
+        - Indian AI company partnership or market wedge
+        - compute access or procurement timing
+        - policy/regulatory timing advantage
+        - strategic relationship or meeting relevance
     cadence:
       discovery_hours: 2
       delta_compile_hours: 6
@@ -53,6 +104,27 @@ topic_tracks:
       max_sources_per_day: 1000
       max_interrupts_per_day: 3
       max_external_fetches: 0
+    lanes:
+      privacy_tier: P3_PUBLIC
+      namespace: world
+      model_lanes:
+        - minimax-public-regular
+      worker_lanes:
+        - public_discovery
+        - public_fetch
+        - world_extraction
+        - topic_reduce
+        - opportunity_scoring
+    approval_gates:
+      - external_message_send
+      - trusted_memory_mutation
+      - live_web_fetch_budget_increase
+      - public_claim_verification_before_brief
+    success_metrics:
+      - New public claims, entities, events, and opportunities are reduced into durable topic state instead of prose-only reports.
+      - Every surfaced recommendation has source refs and an explicit opportunity lens.
+      - The topic can generate ready ops WorkItems for discovery, fetch, extraction, reduction, and scoring without live web access in tests.
+      - Stale or contradicted claims are flagged before Chief-facing synthesis.
     autonomy:
       can_ingest_public_sources: true
       can_create_world_claim_proposals: true

@@ -12,7 +12,7 @@ export const OPS_DISPATCH_PACKET_SCHEMA = 'gbrain.ops.openclaw_dispatch_packet.v
 export const OPS_ROADMAP_FLOW_SCHEMA = 'gbrain.ops.roadmap_flow.v1';
 export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
 export const OPS_WORKER_PROFILE_SCHEMA = 'gbrain.ops.worker_profile.v1';
-export const OPS_TOPIC_TRACK_SCHEMA = 'gbrain.ops.topic_track.v1';
+export const OPS_TOPIC_TRACK_SCHEMA = 'gbrain.ops.topic_track.v2';
 export const OPS_SCOUT_SOURCE_QUEUE_SCHEMA = 'gbrain.ops.scout_source_queue_item.v1';
 export const OPS_CONTROL_SCHEMA = 'gbrain.ops.control.v1';
 
@@ -192,23 +192,38 @@ export interface OpsTopicTrack {
   schema: typeof OPS_TOPIC_TRACK_SCHEMA;
   id: string;
   slug: string;
+  tier: 'T0' | 'T1' | 'T2' | 'T3';
   recipe_slug?: string;
   program_id: string;
   title: string;
   status: ProgramStatus;
   priority: number;
   objective: string;
+  why_it_matters_to_chief: string;
+  decision_surfaces: string[];
+  standing_questions: string[];
   seed_queries: string[];
   watch_entities: string[];
   source_classes: string[];
   extraction_targets: string[];
+  research_plan: ResearchPlanDsl;
   cadence: Record<string, unknown>;
   budgets: Record<string, unknown>;
+  lanes: { privacy_tier: 'P3_PUBLIC'; namespace: 'world'; model_lanes: string[]; worker_lanes: string[] };
+  approval_gates: unknown[];
+  success_metrics: string[];
   autonomy: Record<string, unknown>;
   privacy_tier: 'P3_PUBLIC';
   namespace: 'world';
   created_at: string;
   updated_at: string;
+}
+
+export interface ResearchPlanDsl {
+  maps: Record<string, unknown>;
+  discovery_queries: string[];
+  extraction_targets: string[];
+  opportunity_lenses: string[];
 }
 
 export interface OpsControlEvent {
@@ -734,26 +749,57 @@ export function normalizeTopicTrack(input: unknown, now?: Date): OpsTopicTrack {
   const slug = String(input.slug || id.replace(/^world-/, '')).trim();
   const programId = String(input.program_id || id).trim();
   const at = nowIso(now);
-  const seedQueries = stringArray(input.seed_queries || input.queries);
-  if (!seedQueries.length) throw new Error(`topic_track ${id} requires seed_queries`);
+  const researchPlan = normalizeResearchPlan(input.research_plan, input, id);
+  const seedQueries = stringArray(input.seed_queries || input.queries || researchPlan.discovery_queries);
+  if (!seedQueries.length) throw new Error(`topic_track ${id} requires seed_queries or research_plan.discovery_queries`);
   const watchEntities = stringArray(input.watch_entities);
   if (!watchEntities.length) throw new Error(`topic_track ${id} requires watch_entities`);
+  const sourceClasses = stringArray(input.source_classes);
+  if (!sourceClasses.length) throw new Error(`topic_track ${id} requires source_classes`);
+  const extractionTargets = stringArray(input.extraction_targets || researchPlan.extraction_targets);
+  if (!extractionTargets.length) throw new Error(`topic_track ${id} requires extraction_targets or research_plan.extraction_targets`);
+  const tier = String(input.tier || (numberOr(input.priority, 50) >= 90 ? 'T0' : 'T2'));
+  if (!['T0', 'T1', 'T2', 'T3'].includes(tier)) throw new Error(`topic_track ${id} tier must be T0, T1, T2, or T3`);
+  const why = String(input.why_it_matters_to_chief || input.why || input.objective || '').trim();
+  if (why.length < 20) throw new Error(`topic_track ${id} requires why_it_matters_to_chief`);
+  const decisionSurfaces = stringArray(input.decision_surfaces);
+  if (!decisionSurfaces.length) throw new Error(`topic_track ${id} requires decision_surfaces`);
+  const standingQuestions = stringArray(input.standing_questions || input.questions);
+  if (!standingQuestions.length) throw new Error(`topic_track ${id} requires standing_questions`);
+  const successMetrics = stringArray(input.success_metrics || input.metrics);
+  if (!successMetrics.length) throw new Error(`topic_track ${id} requires success_metrics`);
+  const lanesInput = isObject(input.lanes) ? input.lanes : {};
+  const modelLanes = stringArray(lanesInput.model_lanes || input.model_lanes || ['minimax-public-regular']);
+  if (modelLanes.some(lane => /highspeed/i.test(lane))) throw new Error(`topic_track ${id} must not use highspeed model lanes`);
   return {
     schema: OPS_TOPIC_TRACK_SCHEMA,
     id,
     slug,
+    tier: tier as OpsTopicTrack['tier'],
     recipe_slug: typeof input.recipe_slug === 'string' ? input.recipe_slug : slug,
     program_id: programId,
     title: String(input.title || id),
     status: ['active', 'paused', 'retired'].includes(String(input.status)) ? input.status as ProgramStatus : 'active',
     priority: numberOr(input.priority, 50),
     objective: String(input.objective || input.description || `Scout public world signals for ${id}`),
+    why_it_matters_to_chief: why,
+    decision_surfaces: decisionSurfaces,
+    standing_questions: standingQuestions,
     seed_queries: seedQueries,
     watch_entities: watchEntities,
-    source_classes: stringArray(input.source_classes),
-    extraction_targets: stringArray(input.extraction_targets),
+    source_classes: sourceClasses,
+    extraction_targets: extractionTargets,
+    research_plan: researchPlan,
     cadence: object(input.cadence),
     budgets: object(input.budgets),
+    lanes: {
+      privacy_tier: 'P3_PUBLIC',
+      namespace: 'world',
+      model_lanes: modelLanes,
+      worker_lanes: stringArray(lanesInput.worker_lanes || input.worker_lanes || ['public_scout', 'public_fetch', 'world_extraction', 'topic_reduce', 'opportunity_scoring']),
+    },
+    approval_gates: array(input.approval_gates).length ? array(input.approval_gates) : ['external_send', 'trusted_memory_mutation', 'live_web_fetch_budget_increase'],
+    success_metrics: successMetrics,
     autonomy: object(input.autonomy),
     privacy_tier: 'P3_PUBLIC',
     namespace: 'world',
@@ -762,12 +808,88 @@ export function normalizeTopicTrack(input: unknown, now?: Date): OpsTopicTrack {
   };
 }
 
+function normalizeResearchPlan(input: unknown, parent: Record<string, unknown>, id: string): ResearchPlanDsl {
+  const raw = isObject(input) ? input : {};
+  const maps = object(raw.maps || parent.maps);
+  if (!Object.keys(maps).length) throw new Error(`topic_track ${id} requires research_plan.maps`);
+  const discoveryQueries = stringArray(raw.discovery_queries || parent.discovery_queries || parent.seed_queries || parent.queries);
+  if (!discoveryQueries.length) throw new Error(`topic_track ${id} requires research_plan.discovery_queries`);
+  const extractionTargets = stringArray(raw.extraction_targets || parent.extraction_targets);
+  if (!extractionTargets.length) throw new Error(`topic_track ${id} requires research_plan.extraction_targets`);
+  const opportunityLenses = stringArray(raw.opportunity_lenses || parent.opportunity_lenses);
+  if (!opportunityLenses.length) throw new Error(`topic_track ${id} requires research_plan.opportunity_lenses`);
+  return { maps, discovery_queries: discoveryQueries, extraction_targets: extractionTargets, opportunity_lenses: opportunityLenses };
+}
+
 export function parseTopicTracksYaml(raw: string): OpsTopicTracksConfig {
   const parsed = parseSimpleYaml(raw);
   if (!isObject(parsed)) throw new Error('topic track YAML must be a mapping');
   const rawTracks = Array.isArray(parsed.topic_tracks) ? parsed.topic_tracks : (Array.isArray(parsed.tracks) ? parsed.tracks : undefined);
   if (!rawTracks) throw new Error('topic track YAML must contain topic_tracks: [...]');
   return { topic_tracks: rawTracks.map(t => normalizeTopicTrack(t)) };
+}
+
+export function validateTopicTracksYaml(raw: string): { ok: boolean; errors: string[]; topic_tracks: OpsTopicTrack[] } {
+  try {
+    const parsed = parseTopicTracksYaml(raw);
+    return { ok: true, errors: [], topic_tracks: parsed.topic_tracks };
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)], topic_tracks: [] };
+  }
+}
+
+export function getTopicTrackFromYamlFile(file: string, id: string): OpsTopicTrack {
+  const parsed = parseTopicTracksYaml(readFileSync(file, 'utf8'));
+  const track = parsed.topic_tracks.find(t => t.id === id || t.slug === id);
+  if (!track) throw new Error(`topic track not found: ${id}`);
+  return track;
+}
+
+export function seedTopicTrackWorkItemsFromYamlFile(file: string, id: string, opts: OpsStoreOptions & { force?: boolean } = {}): { ok: true; path: string; source_file: string; topic_track: OpsTopicTrack; work_items: OpsWorkItem[]; created_count: number; skipped_count: number } {
+  const track = getTopicTrackFromYamlFile(file, id);
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  syncTopicTracksFromYamlFile(file, { path, now: opts.now });
+  const before = readOpsState(path);
+  const stages = topicSeedStages(track);
+  const existing = new Set(before.work_items.map(w => w.id));
+  const rawItems = stages.filter(s => opts.force || !existing.has(s.id));
+  const program = {
+    id: track.program_id,
+    title: `${track.title} Topic Intelligence`,
+    status: track.status,
+    priority: track.priority,
+    objective: track.objective,
+    lanes: track.lanes.worker_lanes,
+    cadence: track.cadence,
+    budgets: track.budgets,
+    autonomy: { ...track.autonomy, can_mutate_trusted_memory: false, can_contact_people: false },
+    approval_gates: track.approval_gates,
+    outputs: track.decision_surfaces,
+  };
+  const enqueued = rawItems.length ? enqueueWorkPacket({ program, work_items: rawItems }, { path, now: opts.now }) : enqueueWorkPacket({ program, work_items: [] }, { path, now: opts.now });
+  return { ok: true, path, source_file: file, topic_track: track, work_items: enqueued.work_items, created_count: enqueued.work_items.length, skipped_count: stages.length - rawItems.length };
+}
+
+function topicSeedStages(track: OpsTopicTrack): Array<Record<string, unknown> & { id: string }> {
+  const base = `topic-${track.id}`;
+  const common = {
+    program_id: track.program_id,
+    priority: track.priority,
+    privacy_tier: 'P3_PUBLIC',
+    source_refs: [`topic_track:${track.id}`],
+    guardrails: ['P3 public-only inputs', 'no trusted personal memory mutation', 'no external sends', 'no broad live web fetch in tests', 'MiniMax regular only; no highspeed'],
+    approval_gates: track.approval_gates,
+    budget: track.budgets,
+    created_by: 'topic_track_seed_work',
+  };
+  return [
+    { ...common, id: `${base}-discovery`, title: `Discover public sources for ${track.title}`, description: `Plan discovery from research_plan.discovery_queries without fetching in dry/test lanes. Queries: ${track.research_plan.discovery_queries.slice(0, 5).join('; ')}`, state: 'ready', lane: 'public_discovery', lanes: ['public_discovery'], worker_kind: 'minimax', acceptance_criteria: ['query plan produced', 'source candidates are public/P3', 'no private sources included'], expected_artifacts: ['discovery_query_plan.json'] },
+    { ...common, id: `${base}-fetch`, title: `Fetch bounded public sources for ${track.title}`, description: 'Fetch only approved public source targets within budget; tests must use fixtures and perform no live web access.', state: 'approved', dependencies: [`${base}-discovery`], lane: 'public_fetch', lanes: ['public_fetch'], worker_kind: 'script', acceptance_criteria: ['all sources are P3_PUBLIC/world', 'robots/budget policy respected', 'source_items/source_spans emitted'], expected_artifacts: ['source_items.jsonl', 'source_spans.jsonl'] },
+    { ...common, id: `${base}-extract`, title: `Extract candidates for ${track.title}`, description: `Extract review-only ${track.extraction_targets.join(', ')} from public source spans.`, state: 'approved', dependencies: [`${base}-fetch`], lane: 'world_extraction', lanes: ['world_extraction'], worker_kind: 'minimax', acceptance_criteria: ['candidate claims/events/entities cite source spans', 'unsupported claims remain review-only'], expected_artifacts: ['world_extraction.json'] },
+    { ...common, id: `${base}-reduce`, title: `Reduce topic state for ${track.title}`, description: 'Reduce candidates into review-only topic state/deltas and standing-question updates.', state: 'approved', dependencies: [`${base}-extract`], lane: 'topic_reduce', lanes: ['topic_reduce'], worker_kind: 'script', acceptance_criteria: ['topic state cites source refs', 'unknowns/stale questions preserved'], expected_artifacts: ['topic_state.json'] },
+    { ...common, id: `${base}-scoring`, title: `Score opportunities for ${track.title}`, description: `Score signals through opportunity lenses: ${track.research_plan.opportunity_lenses.join(', ')}.`, state: 'approved', dependencies: [`${base}-reduce`], lane: 'opportunity_scoring', lanes: ['opportunity_scoring'], worker_kind: 'minimax', acceptance_criteria: ['personal relevance separated from trusted memory', 'candidate actions require approval gates'], expected_artifacts: ['opportunity_scores.json'] },
+  ];
 }
 
 export function syncTopicTracksFromYamlFile(file: string, opts: OpsStoreOptions = {}): TopicTrackSyncResult {

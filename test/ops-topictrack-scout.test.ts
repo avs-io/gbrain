@@ -17,15 +17,34 @@ function topicYaml(): string {
     recipe_slug: sovereign-ai-india
     program_id: world-sovereign-ai-india
     title: Sovereign AI India
+    tier: T0
     status: active
     priority: 90
     objective: Maintain dynamic public-world intelligence on Indian sovereign AI policy, compute, procurement, and institutional signals.
+    why_it_matters_to_chief: India sovereign AI changes Chief's strategy surface across policy, compute access, companies, and timed opportunities.
+    decision_surfaces: [weekly strategy brief, opportunity radar]
+    standing_questions:
+      - What policy or procurement signal changed?
+      - What opportunity is newly timed for Chief?
     seed_queries:
       - India sovereign AI compute policy IndiaAI GPU tender
       - MeitY sovereign AI foundation model India
     watch_entities: [MeitY, IndiaAI Mission, Sarvam AI, Krutrim]
     source_classes: [government_release, news, procurement_tender]
     extraction_targets: [entities, claims, events, procurement_signal]
+    research_plan:
+      maps:
+        institutions: [MeitY, IndiaAI Mission]
+        companies: [Sarvam AI, Krutrim]
+      discovery_queries:
+        - India sovereign AI compute policy IndiaAI GPU tender
+        - MeitY sovereign AI foundation model India
+      extraction_targets: [entities, claims, events, procurement_signal]
+      opportunity_lenses: [policy timing, compute access, partnership wedge]
+    approval_gates: [external_message_send, trusted_memory_mutation]
+    success_metrics:
+      - Reduced state exists with source refs.
+      - Scout cycle remains review-only.
     budgets:
       max_external_fetches: 0
       max_queries_per_run: 4
