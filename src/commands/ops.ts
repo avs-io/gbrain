@@ -37,6 +37,7 @@ import {
   heartbeatTemplateMarkdown,
 } from '../core/ops/liveness.ts';
 import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
+import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -62,6 +63,7 @@ gbrain ops topic-tracks list --json [--store <path>]
 gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
 gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
 gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--archive <decisions.jsonl>] [--out <report.json>]
+gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -211,6 +213,26 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
     if (hasFlag(actionArgs, '--json') || out) printJson(report);
     else console.log(`bookmarks=${report.deduped_count}\twork_items=${report.created_work_items.length}\tarchived=${report.archived_decisions.length}\tsurfaced=${report.surfaced_candidates.length}`);
+    return;
+  }
+
+  if (sub === 'meetings' || sub === 'meeting-transcripts') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action !== 'extract') throw new Error('gbrain ops meetings supports: extract');
+    const input = flagValue(actionArgs, '--input');
+    if (!input) throw new Error('gbrain ops meetings extract requires --input <transcript.md|txt>');
+    const report = runMeetingTranscriptActions({
+      transcript: readMeetingTranscriptFile(input),
+      transcriptRef: flagValue(actionArgs, '--transcript-ref') || input,
+      storePath: storePath(actionArgs),
+      archivePath: flagValue(actionArgs, '--archive'),
+      actionProposalPath: flagValue(actionArgs, '--actions-store'),
+    });
+    const out = flagValue(actionArgs, '--out');
+    if (out) writeMeetingTranscriptActionReport(out, report);
+    if (hasFlag(actionArgs, '--json') || out) printJson(report);
+    else console.log(`commitments=${report.commitments.length}\tfollow_ups=${report.follow_ups.length}\treminders=${report.reminders.length}\tmemory_proposals=${report.memory_proposals.length}\twork_items=${report.created_work_items.length}`);
     return;
   }
 
