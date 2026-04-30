@@ -44,6 +44,55 @@ topic_tracks:
       - funding
       - public_social_signal
       - procurement_tender
+    source_targets:
+      - id: meity-official
+        source_class: primary_official
+        label: MeitY official website
+        url: https://www.meity.gov.in/
+        authority_tier: primary
+        fetch_policy: crawl_allowed
+        robots_required: true
+        max_fetches_per_day: 3
+      - id: indiaai-official
+        source_class: primary_official
+        label: IndiaAI Mission official website
+        url: https://indiaai.gov.in/
+        authority_tier: primary
+        fetch_policy: crawl_allowed
+        robots_required: true
+        max_fetches_per_day: 5
+      - id: indiaai-search-procurement
+        source_class: procurement_tender
+        label: IndiaAI sovereign AI procurement search
+        query: IndiaAI Mission GPU tender compute procurement sovereign AI India
+        authority_tier: high
+        fetch_policy: search
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: sarvam-company
+        source_class: company_primary
+        label: Sarvam AI official website
+        url: https://www.sarvam.ai/
+        authority_tier: medium
+        fetch_policy: crawl_allowed
+        robots_required: true
+        max_fetches_per_day: 3
+      - id: krutrim-company
+        source_class: company_primary
+        label: Krutrim official website
+        url: https://www.olakrutrim.com/
+        authority_tier: medium
+        fetch_policy: crawl_allowed
+        robots_required: true
+        max_fetches_per_day: 3
+      - id: public-social-disabled
+        source_class: social_signal
+        label: Public social signals disabled until explicit source authorization
+        query: sovereign AI India MeitY IndiaAI Sarvam Krutrim
+        authority_tier: low
+        fetch_policy: disabled
+        robots_required: true
+        max_fetches_per_day: 0
     extraction_targets:
       - entities
       - claims

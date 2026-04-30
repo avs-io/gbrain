@@ -13,6 +13,7 @@ export const OPS_ROADMAP_FLOW_SCHEMA = 'gbrain.ops.roadmap_flow.v1';
 export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
 export const OPS_WORKER_PROFILE_SCHEMA = 'gbrain.ops.worker_profile.v1';
 export const OPS_TOPIC_TRACK_SCHEMA = 'gbrain.ops.topic_track.v2';
+export const OPS_SOURCE_TARGET_SCHEMA = 'gbrain.ops.topic_source_target.v1';
 export const OPS_SCOUT_SOURCE_QUEUE_SCHEMA = 'gbrain.ops.scout_source_queue_item.v1';
 export const OPS_CONTROL_SCHEMA = 'gbrain.ops.control.v1';
 
@@ -34,6 +35,10 @@ export type WorkItemState = typeof WORK_ITEM_STATES[number];
 export type ProgramStatus = 'active' | 'paused' | 'retired';
 export type WorkerKind = 'qwen_local' | 'minimax' | 'subagent' | 'acp_codex' | 'script' | 'human_review' | string;
 export type PrivacyTier = 'P0' | 'P1' | 'P2' | 'P3' | 'P0_LOCAL_ONLY' | 'P1_PRIVATE' | 'P2_LIMITED_CLOUD' | 'P3_PUBLIC' | string;
+export const SOURCE_TARGET_FETCH_POLICIES = ['manual', 'rss', 'search', 'crawl_allowed', 'api', 'disabled'] as const;
+export type SourceTargetFetchPolicy = typeof SOURCE_TARGET_FETCH_POLICIES[number];
+export const SOURCE_TARGET_AUTHORITY_TIERS = ['primary', 'high', 'medium', 'low', 'weak'] as const;
+export type SourceTargetAuthorityTier = typeof SOURCE_TARGET_AUTHORITY_TIERS[number];
 export type LeaseStatus = 'active' | 'released' | 'expired' | 'revoked';
 export type RunStatus = 'queued' | 'starting' | 'running' | 'succeeded' | 'failed' | 'timed_out' | 'cancelled' | 'lost';
 export type InterruptSeverity = 'info' | 'low' | 'medium' | 'high' | 'urgent';
@@ -215,8 +220,40 @@ export interface OpsTopicTrack {
   autonomy: Record<string, unknown>;
   privacy_tier: 'P3_PUBLIC';
   namespace: 'world';
+  source_targets: OpsSourceTarget[];
   created_at: string;
   updated_at: string;
+}
+
+export interface OpsSourceTarget {
+  schema: typeof OPS_SOURCE_TARGET_SCHEMA;
+  id: string;
+  topic_id: string;
+  source_class: string;
+  label: string;
+  url?: string;
+  query?: string;
+  authority_tier: SourceTargetAuthorityTier;
+  fetch_policy: SourceTargetFetchPolicy;
+  robots_required: boolean;
+  max_fetches_per_day: number;
+  privacy_tier: 'P3_PUBLIC';
+  namespace: 'world';
+  last_checked_at?: string;
+  last_success_at?: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface SourceTargetFetchDecision {
+  allowed: boolean;
+  source_target_id: string;
+  fetch_policy: SourceTargetFetchPolicy;
+  skip_reason?: 'disabled' | 'manual_requires_explicit_url_review' | 'search_target_creates_discovery_work_only' | 'missing_url_or_query' | 'daily_target_limit_reached' | 'daily_domain_limit_reached' | 'robots_required' | 'unknown_policy';
+  robots_required: boolean;
+  max_fetches_per_day: number;
+  domain?: string;
 }
 
 export interface ResearchPlanDsl {
@@ -298,6 +335,7 @@ export interface OpsState {
   work_items: OpsWorkItem[];
   worker_profiles: OpsWorkerProfile[];
   topic_tracks: OpsTopicTrack[];
+  source_targets: OpsSourceTarget[];
   scout_source_queue: OpsScoutSourceQueueItem[];
   roadmap_flows: OpsRoadmapFlow[];
   runs: OpsWorkRun[];
@@ -382,7 +420,7 @@ export interface OpsDispatchPacket {
   session_id?: string;
 }
 
-type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'topic_track_upsert' | 'scout_source_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'control_event' | 'work_state';
+type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'topic_track_upsert' | 'source_target_upsert' | 'scout_source_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'control_event' | 'work_state';
 
 interface OpsEvent<T = unknown> {
   schema: typeof OPS_EVENT_SCHEMA;
@@ -413,6 +451,8 @@ export interface ProgramWorkSeedResult {
 export interface OpsWorkerProfilesConfig { workers: OpsWorkerProfile[]; }
 
 export interface OpsTopicTracksConfig { topic_tracks: OpsTopicTrack[]; }
+
+export interface TopicSourceTargetResult { ok: true; path?: string; source_file: string; topic_track: OpsTopicTrack; source_targets: OpsSourceTarget[]; }
 
 export type WorkerRouteStatus = 'selected' | 'held' | 'denied' | 'legacy';
 
@@ -517,7 +557,7 @@ export function opsStorePath(): string {
 }
 
 export function emptyOpsState(): OpsState {
-  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], topic_tracks: [], scout_source_queue: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [], control_events: [] };
+  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], topic_tracks: [], source_targets: [], scout_source_queue: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [], control_events: [] };
 }
 
 export function initOpsStore(path = opsStorePath(), now?: Date): { ok: true; path: string; initialized: boolean } {
@@ -558,6 +598,7 @@ function applyEvent(state: OpsState, evt: OpsEvent): void {
     case 'work_upsert': upsertById(state.work_items, p as OpsWorkItem); break;
     case 'worker_profile_upsert': upsertById(state.worker_profiles, p as OpsWorkerProfile); break;
     case 'topic_track_upsert': upsertById(state.topic_tracks, p as OpsTopicTrack); break;
+    case 'source_target_upsert': upsertById(state.source_targets, p as OpsSourceTarget); break;
     case 'scout_source_upsert': upsertById(state.scout_source_queue, p as OpsScoutSourceQueueItem); break;
     case 'roadmap_flow_upsert': upsertById(state.roadmap_flows, p as OpsRoadmapFlow); break;
     case 'run_upsert': upsertById(state.runs, p as OpsWorkRun); break;
@@ -803,9 +844,59 @@ export function normalizeTopicTrack(input: unknown, now?: Date): OpsTopicTrack {
     autonomy: object(input.autonomy),
     privacy_tier: 'P3_PUBLIC',
     namespace: 'world',
+    source_targets: normalizeSourceTargets(input.source_targets || input.topic_source_targets || [], id, at),
     created_at: typeof input.created_at === 'string' ? input.created_at : at,
     updated_at: at,
   };
+}
+
+export function normalizeSourceTarget(input: unknown, topicId: string, now?: Date | string): OpsSourceTarget {
+  if (!isObject(input)) throw new Error(`source_target for ${topicId} must be an object`);
+  const at = typeof now === 'string' ? now : nowIso(now);
+  const id = String(input.id || hashId(`source_target_${topicId}`, input)).trim();
+  if (!id) throw new Error(`source_target for ${topicId} requires id`);
+  const sourceClass = String(input.source_class || '').trim();
+  if (!sourceClass) throw new Error(`source_target ${id} requires source_class`);
+  const label = String(input.label || '').trim();
+  if (!label) throw new Error(`source_target ${id} requires label`);
+  const url = typeof input.url === 'string' && input.url.trim() ? input.url.trim() : undefined;
+  const query = typeof input.query === 'string' && input.query.trim() ? input.query.trim() : undefined;
+  if (!url && !query) throw new Error(`source_target ${id} requires url or query`);
+  if (url && !/^https?:\/\//i.test(url)) throw new Error(`source_target ${id} url must be public http(s)`);
+  const policy = String(input.fetch_policy || '').trim();
+  if (!SOURCE_TARGET_FETCH_POLICIES.includes(policy as SourceTargetFetchPolicy)) throw new Error(`source_target ${id} fetch_policy must be one of ${SOURCE_TARGET_FETCH_POLICIES.join(', ')}`);
+  const authority = String(input.authority_tier || '').trim();
+  if (!SOURCE_TARGET_AUTHORITY_TIERS.includes(authority as SourceTargetAuthorityTier)) throw new Error(`source_target ${id} authority_tier must be one of ${SOURCE_TARGET_AUTHORITY_TIERS.join(', ')}`);
+  const privacy = String(input.privacy_tier || 'P3_PUBLIC');
+  const namespace = String(input.namespace || 'world');
+  if (privacy !== 'P3_PUBLIC' && privacy !== 'P3' && privacy !== 'public') throw new Error(`source_target ${id} must be P3/public`);
+  if (namespace !== 'world' && namespace !== 'public') throw new Error(`source_target ${id} namespace must be world/public`);
+  const maxFetches = Math.max(0, Math.floor(numberOr(input.max_fetches_per_day, policy === 'disabled' ? 0 : 5)));
+  return {
+    schema: OPS_SOURCE_TARGET_SCHEMA,
+    id,
+    topic_id: String(input.topic_id || topicId),
+    source_class: sourceClass,
+    label,
+    url,
+    query,
+    authority_tier: authority as SourceTargetAuthorityTier,
+    fetch_policy: policy as SourceTargetFetchPolicy,
+    robots_required: input.robots_required === false ? false : true,
+    max_fetches_per_day: maxFetches,
+    privacy_tier: 'P3_PUBLIC',
+    namespace: 'world',
+    last_checked_at: typeof input.last_checked_at === 'string' ? input.last_checked_at : undefined,
+    last_success_at: typeof input.last_success_at === 'string' ? input.last_success_at : undefined,
+    metadata: object(input.metadata),
+    created_at: typeof input.created_at === 'string' ? input.created_at : at,
+    updated_at: typeof input.updated_at === 'string' ? input.updated_at : at,
+  };
+}
+
+function normalizeSourceTargets(input: unknown, topicId: string, at: string): OpsSourceTarget[] {
+  if (!Array.isArray(input)) return [];
+  return input.map(t => normalizeSourceTarget(t, topicId, at));
 }
 
 function normalizeResearchPlan(input: unknown, parent: Record<string, unknown>, id: string): ResearchPlanDsl {
@@ -898,12 +989,97 @@ export function syncTopicTracksFromYamlFile(file: string, opts: OpsStoreOptions 
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
   const tracks = parsed.topic_tracks.map(t => normalizeTopicTrack(t, opts.now));
-  for (const track of tracks) appendEvent(path, 'topic_track_upsert', track, opts.now);
+  for (const track of tracks) {
+    appendEvent(path, 'topic_track_upsert', track, opts.now);
+    for (const target of track.source_targets) appendEvent(path, 'source_target_upsert', target, opts.now);
+  }
   return { ok: true, path, source_file: file, topic_tracks: tracks, upserted_count: tracks.length };
 }
 
 export function listOpsTopicTracks(opts: OpsStoreOptions = {}): OpsTopicTrack[] {
   return readOpsState(opts.path || opsStorePath()).topic_tracks.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
+export function listSourceTargetsFromYamlFile(file: string, topicId: string): TopicSourceTargetResult {
+  const topic_track = getTopicTrackFromYamlFile(file, topicId);
+  return { ok: true, source_file: file, topic_track, source_targets: topic_track.source_targets };
+}
+
+export function validateSourceTargetsFromYaml(raw: string, topicId?: string): { ok: boolean; errors: string[]; source_targets: OpsSourceTarget[] } {
+  try {
+    const parsed = parseTopicTracksYaml(raw);
+    const tracks = topicId ? parsed.topic_tracks.filter(t => t.id === topicId || t.slug === topicId) : parsed.topic_tracks;
+    if (topicId && !tracks.length) throw new Error(`topic track not found: ${topicId}`);
+    const source_targets = tracks.flatMap(t => t.source_targets);
+    return { ok: true, errors: [], source_targets };
+  } catch (error) {
+    return { ok: false, errors: [error instanceof Error ? error.message : String(error)], source_targets: [] };
+  }
+}
+
+function targetDomain(target: OpsSourceTarget): string | undefined {
+  if (!target.url) return undefined;
+  try { return new URL(target.url).hostname.toLowerCase(); } catch { return undefined; }
+}
+
+export function decideSourceTargetFetch(target: OpsSourceTarget, opts: { targetFetchesToday?: number; domainFetchesToday?: number; maxDomainFetchesPerDay?: number; robotsAllowed?: boolean } = {}): SourceTargetFetchDecision {
+  const domain = targetDomain(target);
+  const base = { source_target_id: target.id, fetch_policy: target.fetch_policy, robots_required: target.robots_required, max_fetches_per_day: target.max_fetches_per_day, domain };
+  if (!SOURCE_TARGET_FETCH_POLICIES.includes(target.fetch_policy)) return { ...base, allowed: false, skip_reason: 'unknown_policy' };
+  if (target.fetch_policy === 'disabled') return { ...base, allowed: false, skip_reason: 'disabled' };
+  if (target.fetch_policy === 'manual') return { ...base, allowed: false, skip_reason: 'manual_requires_explicit_url_review' };
+  if (target.fetch_policy === 'search') return { ...base, allowed: false, skip_reason: 'search_target_creates_discovery_work_only' };
+  if (!target.url && !target.query) return { ...base, allowed: false, skip_reason: 'missing_url_or_query' };
+  if ((opts.targetFetchesToday || 0) >= target.max_fetches_per_day) return { ...base, allowed: false, skip_reason: 'daily_target_limit_reached' };
+  if (opts.maxDomainFetchesPerDay !== undefined && (opts.domainFetchesToday || 0) >= opts.maxDomainFetchesPerDay) return { ...base, allowed: false, skip_reason: 'daily_domain_limit_reached' };
+  if (target.robots_required && opts.robotsAllowed === false) return { ...base, allowed: false, skip_reason: 'robots_required' };
+  return { ...base, allowed: true };
+}
+
+export function createSourceTargetFetchWorkItemsFromYamlFile(file: string, topicId: string, opts: OpsStoreOptions & { force?: boolean; maxDomainFetchesPerDay?: number } = {}): { ok: true; path: string; source_file: string; topic_track: OpsTopicTrack; created_count: number; skipped_count: number; skipped: Array<{ source_target_id: string; reason: string }>; work_items: OpsWorkItem[] } {
+  const track = getTopicTrackFromYamlFile(file, topicId);
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  syncTopicTracksFromYamlFile(file, { path, now: opts.now });
+  const state = readOpsState(path);
+  const existing = new Set(state.work_items.map(w => w.id));
+  const rawItems: Array<Record<string, unknown>> = [];
+  const skipped: Array<{ source_target_id: string; reason: string }> = [];
+  const domainCounts = new Map<string, number>();
+  for (const target of track.source_targets) {
+    const decision = decideSourceTargetFetch(target, { domainFetchesToday: targetDomain(target) ? domainCounts.get(targetDomain(target)!) || 0 : 0, maxDomainFetchesPerDay: opts.maxDomainFetchesPerDay ?? 25 });
+    if (!decision.allowed) { skipped.push({ source_target_id: target.id, reason: decision.skip_reason || 'not_allowed' }); continue; }
+    const id = `topic-${track.id}-source-${target.id}-fetch`;
+    if (!opts.force && existing.has(id)) { skipped.push({ source_target_id: target.id, reason: 'work_item_exists' }); continue; }
+    if (decision.domain) domainCounts.set(decision.domain, (domainCounts.get(decision.domain) || 0) + 1);
+    rawItems.push(sourceTargetFetchWorkItem(track, target, id, decision));
+  }
+  const program = { id: track.program_id, title: `${track.title} Topic Intelligence`, status: track.status, priority: track.priority, objective: track.objective, lanes: track.lanes.worker_lanes, cadence: track.cadence, budgets: track.budgets, autonomy: { ...track.autonomy, can_mutate_trusted_memory: false, can_contact_people: false }, approval_gates: track.approval_gates, outputs: track.decision_surfaces };
+  const enqueued = rawItems.length ? enqueueWorkPacket({ program, work_items: rawItems }, { path, now: opts.now }) : enqueueWorkPacket({ program, work_items: [] }, { path, now: opts.now });
+  return { ok: true, path, source_file: file, topic_track: track, created_count: enqueued.work_items.length, skipped_count: skipped.length, skipped, work_items: enqueued.work_items };
+}
+
+function sourceTargetFetchWorkItem(track: OpsTopicTrack, target: OpsSourceTarget, id: string, decision: SourceTargetFetchDecision): Record<string, unknown> {
+  return {
+    id,
+    program_id: track.program_id,
+    title: `Fetch source target: ${target.label}`,
+    description: `Create P3/world source_items and source_spans for approved source target ${target.id}. This WorkItem is policy-bounded; execution must verify robots and rate limits before HTTP access.`,
+    state: 'ready',
+    priority: track.priority,
+    lane: 'public_fetch',
+    lanes: ['public_fetch'],
+    worker_kind: 'script',
+    privacy_tier: 'P3_PUBLIC',
+    source_refs: [`topic_track:${track.id}`, `topic_source_target:${target.id}`, { topic_id: track.id, source_target_id: target.id, input: { url: target.url, query: target.query, source_class: target.source_class, authority_tier: target.authority_tier, fetch_policy: target.fetch_policy } }],
+    dependencies: [],
+    acceptance_criteria: ['input source target remains P3_PUBLIC/world', 'robots policy checked before HTTP fetch', 'per-target and per-domain budgets respected', 'source_items/source_spans emitted or explicit skip reason recorded'],
+    expected_artifacts: ['source_items.jsonl', 'source_spans.jsonl', { outputs: ['source_items', 'source_spans'], topic_id: track.id, source_target_id: target.id }],
+    guardrails: ['P3 public-only inputs', 'no private/logged-in scraping', 'respect robots.txt and crawl delay', 'bounded per-target/domain fetches', 'no trusted personal memory mutation', 'no external sends'],
+    approval_gates: track.approval_gates,
+    budget: { ...track.budgets, max_fetches_per_day: target.max_fetches_per_day, robots_required: target.robots_required, fetch_policy_decision: decision },
+    created_by: 'topic_source_target_fetch_work',
+  };
 }
 
 export function upsertScoutSourceQueueItem(input: Omit<OpsScoutSourceQueueItem, 'schema' | 'created_at' | 'updated_at'> & { created_at?: string; updated_at?: string }, opts: OpsStoreOptions = {}): OpsScoutSourceQueueItem {

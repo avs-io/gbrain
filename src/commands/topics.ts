@@ -2,9 +2,12 @@ import { readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 import {
+  createSourceTargetFetchWorkItemsFromYamlFile,
   getTopicTrackFromYamlFile,
+  listSourceTargetsFromYamlFile,
   parseTopicTracksYaml,
   seedTopicTrackWorkItemsFromYamlFile,
+  validateSourceTargetsFromYaml,
   validateTopicTracksYaml,
 } from '../core/ops/kernel.ts';
 function flagValue(args: string[], flag: string): string | undefined {
@@ -21,8 +24,43 @@ function registryPath(args: string[]): string { return flagValue(args, '--file')
 export async function runTopicsCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry and Research Plan DSL commands. Public P3/world only; seed-work creates ops-kernel WorkItems but never fetches live web.`);
+    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, and public source target commands. Public P3/world only; WorkItem creation never performs live web fetching.`);
     return;
+  }
+
+  if (sub === 'source-targets') {
+    const [action, ...targetRest] = rest;
+    if (action === 'list') {
+      const id = targetRest.find(a => !a.startsWith('--'));
+      if (!id) throw new Error('gbrain topics source-targets list requires <topic-id>');
+      const file = registryPath(targetRest);
+      const result = listSourceTargetsFromYamlFile(file, id);
+      const payload = { ...result, schema: 'gbrain.topics.source_targets.list.v1' };
+      if (hasFlag(targetRest, '--json')) printJson(payload);
+      else for (const t of result.source_targets) console.log(`${t.id}\t${t.fetch_policy}\t${t.authority_tier}\t${t.label}`);
+      return;
+    }
+    if (action === 'validate') {
+      const id = targetRest.find(a => !a.startsWith('--'));
+      const file = registryPath(targetRest);
+      const result = validateSourceTargetsFromYaml(readFileSync(file, 'utf8'), id);
+      const payload = { ok: result.ok, schema: 'gbrain.topics.source_targets.validate.v1', source_file: file, topic_id: id, errors: result.errors, source_target_count: result.source_targets.length };
+      if (hasFlag(targetRest, '--json')) printJson(payload);
+      else console.log(result.ok ? `ok\tsource_targets=${result.source_targets.length}` : result.errors.join('\n'));
+      if (!result.ok) process.exitCode = 1;
+      return;
+    }
+    if (action === 'seed-fetch-work') {
+      const id = targetRest.find(a => !a.startsWith('--'));
+      if (!id) throw new Error('gbrain topics source-targets seed-fetch-work requires <topic-id>');
+      const file = registryPath(targetRest);
+      const result = createSourceTargetFetchWorkItemsFromYamlFile(file, id, { path: flagValue(targetRest, '--store'), force: hasFlag(targetRest, '--force') });
+      const payload = { ...result, schema: 'gbrain.topics.source_targets.seed_fetch_work.v1' };
+      if (hasFlag(targetRest, '--json')) printJson(payload);
+      else console.log(`seeded ${result.created_count} source-target fetch work items for ${result.topic_track.id}; skipped=${result.skipped_count}`);
+      return;
+    }
+    throw new Error(`Unknown topics source-targets subcommand: ${action || ''}`);
   }
 
   if (sub === 'list') {
