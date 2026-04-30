@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { randomUUID, createHash } from 'node:crypto';
 
@@ -7,6 +7,7 @@ import { configDir } from '../config.ts';
 export const OPS_KERNEL_SCHEMA = 'gbrain.ops.kernel.v1';
 export const OPS_EVENT_SCHEMA = 'gbrain.ops.event.v1';
 export const OPS_COMPLETION_SCHEMA = 'gbrain.ops.completion.v1';
+export const OPS_WORK_PACK_SCHEMA = 'gbrain.ops.work_pack.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -62,6 +63,8 @@ export interface OpsWorkItem {
   dependencies: string[];
   acceptance_criteria: unknown[];
   expected_artifacts: unknown[];
+  guardrails?: unknown[];
+  approval_gates?: unknown[];
   budget: Record<string, unknown>;
   not_before?: string;
   deadline_at?: string;
@@ -88,6 +91,7 @@ export interface OpsWorkRun {
   last_event_at?: string;
   input_pack_path?: string;
   output_path?: string;
+  completion_path?: string;
   completion_json?: unknown;
   error?: string;
   token_usage?: Record<string, unknown>;
@@ -180,14 +184,14 @@ export interface OpsState {
 
 export interface OpsCompletion {
   work_item_id: string;
-  program_id?: string;
+  program_id: string;
   status: Extract<WorkItemState, 'succeeded' | 'failed' | 'blocked' | 'waiting_human' | 'cancelled' | 'quarantined'>;
   summary: string;
-  artifacts?: Array<{ kind: string; path?: string | null; ref?: string | null; hash?: string; summary?: string; metadata?: Record<string, unknown> }>;
-  checks_run?: string[];
-  next_work_recommendations?: unknown[];
-  requires_human?: unknown[];
-  continuation?: Record<string, unknown>;
+  artifacts: Array<{ kind: string; path?: string | null; ref?: string | null; hash?: string; summary?: string; metadata?: Record<string, unknown> }>;
+  checks_run: Array<string | Record<string, unknown>>;
+  next_work_recommendations: unknown[];
+  requires_human: boolean;
+  continuation: Record<string, unknown>;
   provider?: string;
   model?: string;
   token_usage?: Record<string, unknown>;
@@ -202,6 +206,29 @@ export interface OpsAuditAlert {
   message: string;
   work_item_ids?: string[];
   lease_ids?: string[];
+}
+
+export interface OpsWorkPack {
+  schema: typeof OPS_WORK_PACK_SCHEMA;
+  generated_at: string;
+  work_item: Pick<OpsWorkItem, 'id' | 'program_id' | 'title' | 'description' | 'state' | 'lane' | 'worker_kind' | 'privacy_tier' | 'priority' | 'created_at' | 'updated_at'>;
+  program?: Pick<OpsProgram, 'id' | 'title' | 'objective' | 'status' | 'priority' | 'approval_gates' | 'autonomy'>;
+  source_refs: unknown[];
+  dependencies: {
+    required: string[];
+    resolved: Array<{ id: string; state: WorkItemState; title: string }>;
+    pending: Array<{ id: string; state?: WorkItemState; title?: string }>;
+  };
+  acceptance_criteria: unknown[];
+  expected_artifacts: unknown[];
+  guardrails: {
+    privacy_tier: PrivacyTier;
+    internal_only: true;
+    approval_gates: unknown[];
+    work_item_guardrails: unknown[];
+    program_autonomy?: Record<string, unknown>;
+  };
+  completion_contract: ReturnType<typeof completionContract>;
 }
 
 type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
@@ -356,6 +383,8 @@ export function normalizeWorkItem(input: unknown, existing: OpsState, now?: Date
     dependencies,
     acceptance_criteria: array(input.acceptance_criteria),
     expected_artifacts: array(input.expected_artifacts),
+    guardrails: array(input.guardrails),
+    approval_gates: array(input.approval_gates),
     budget: object(input.budget),
     not_before: typeof input.not_before === 'string' ? input.not_before : undefined,
     deadline_at: typeof input.deadline_at === 'string' ? input.deadline_at : undefined,
@@ -555,6 +584,141 @@ export function listWorkItems(filter: { state?: WorkItemState }, opts: OpsStoreO
   return [...items].sort((a, b) => b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
 
+export function buildWorkPack(id: string, opts: OpsStoreOptions = {}): OpsWorkPack {
+  const state = readOpsState(opts.path || opsStorePath());
+  const item = state.work_items.find(w => w.id === id);
+  if (!item) throw new Error(`work item not found: ${id}`);
+  const program = state.programs.find(p => p.id === item.program_id);
+  const dependencyRows = item.dependencies.map(depId => state.work_items.find(w => w.id === depId));
+  const resolved = dependencyRows
+    .filter((w): w is OpsWorkItem => !!w && w.state === 'succeeded')
+    .map(w => ({ id: w.id, state: w.state, title: w.title }));
+  const pending = item.dependencies
+    .map(depId => state.work_items.find(w => w.id === depId) || { id: depId })
+    .filter(w => !('state' in w) || w.state !== 'succeeded')
+    .map(w => ('state' in w ? { id: w.id, state: w.state, title: w.title } : { id: w.id }));
+
+  return {
+    schema: OPS_WORK_PACK_SCHEMA,
+    generated_at: nowIso(opts.now),
+    work_item: {
+      id: item.id,
+      program_id: item.program_id,
+      title: item.title,
+      description: item.description,
+      state: item.state,
+      lane: item.lane,
+      worker_kind: item.worker_kind,
+      privacy_tier: item.privacy_tier,
+      priority: item.priority,
+      created_at: item.created_at,
+      updated_at: item.updated_at,
+    },
+    program: program ? {
+      id: program.id,
+      title: program.title,
+      objective: program.objective,
+      status: program.status,
+      priority: program.priority,
+      approval_gates: program.approval_gates,
+      autonomy: program.autonomy,
+    } : undefined,
+    source_refs: item.source_refs,
+    dependencies: { required: item.dependencies, resolved, pending },
+    acceptance_criteria: item.acceptance_criteria,
+    expected_artifacts: item.expected_artifacts,
+    guardrails: {
+      privacy_tier: item.privacy_tier,
+      internal_only: true,
+      approval_gates: [...(program?.approval_gates || []), ...(item.approval_gates || [])],
+      work_item_guardrails: item.guardrails || [],
+      program_autonomy: program?.autonomy,
+    },
+    completion_contract: completionContract(item),
+  };
+}
+
+export function renderWorkPackMarkdown(pack: OpsWorkPack): string {
+  const lines: string[] = [];
+  lines.push(`# Work Pack: ${pack.work_item.id}`);
+  lines.push('');
+  lines.push(`- Schema: ${pack.schema}`);
+  lines.push(`- Program: ${pack.program?.title || pack.work_item.program_id} (${pack.work_item.program_id})`);
+  lines.push(`- Objective: ${pack.program?.objective || 'unknown'}`);
+  lines.push(`- State: ${pack.work_item.state}`);
+  lines.push(`- Lane / worker: ${pack.work_item.lane} / ${pack.work_item.worker_kind}`);
+  lines.push(`- Privacy tier: ${pack.work_item.privacy_tier}`);
+  lines.push('');
+  lines.push('## Task');
+  lines.push(pack.work_item.description);
+  lines.push('');
+  lines.push('## Dependencies');
+  lines.push(pack.dependencies.required.length ? pack.dependencies.required.map(id => `- ${id}`).join('\n') : '- none');
+  lines.push('');
+  lines.push('## Acceptance criteria');
+  lines.push(pack.acceptance_criteria.length ? pack.acceptance_criteria.map(v => `- ${formatPackValue(v)}`).join('\n') : '- none listed');
+  lines.push('');
+  lines.push('## Expected artifacts');
+  lines.push(pack.expected_artifacts.length ? pack.expected_artifacts.map(v => `- ${formatPackValue(v)}`).join('\n') : '- none listed');
+  lines.push('');
+  lines.push('## Guardrails / approval gates');
+  lines.push(`- Internal-only ops state: ${pack.guardrails.internal_only}`);
+  lines.push(`- Approval gates: ${pack.guardrails.approval_gates.length ? pack.guardrails.approval_gates.map(formatPackValue).join('; ') : 'none listed'}`);
+  lines.push(`- Work item guardrails: ${pack.guardrails.work_item_guardrails.length ? pack.guardrails.work_item_guardrails.map(formatPackValue).join('; ') : 'none listed'}`);
+  lines.push('');
+  lines.push('## Completion contract');
+  lines.push('Submit JSON only. Required fields:');
+  for (const field of pack.completion_contract.required) lines.push(`- ${field}`);
+  lines.push('');
+  lines.push('Allowed statuses: ' + pack.completion_contract.status_enum.join(', '));
+  return lines.join('\n');
+}
+
+function formatPackValue(v: unknown): string {
+  return typeof v === 'string' ? v : JSON.stringify(v);
+}
+
+function completionContract(item?: OpsWorkItem) {
+  return {
+    schema: OPS_COMPLETION_SCHEMA,
+    required: ['work_item_id', 'program_id', 'status', 'summary', 'artifacts', 'checks_run', 'next_work_recommendations', 'requires_human', 'continuation'],
+    status_enum: ['succeeded', 'failed', 'blocked', 'waiting_human', 'cancelled', 'quarantined'] as const,
+    instructions: [
+      'Return machine-readable JSON only; prose-only completion is invalid and will not mutate state.',
+      'Set status=succeeded only when every acceptance criterion is satisfied and checks/artifacts are recorded.',
+      'Set requires_human=true only with status=waiting_human or status=blocked, and explain the human decision/input in continuation.',
+      'next_work_recommendations are parsed and persisted for review; they are not auto-executed or enqueued.',
+    ],
+    json_schema: {
+      type: 'object',
+      additionalProperties: true,
+      required: ['work_item_id', 'program_id', 'status', 'summary', 'artifacts', 'checks_run', 'next_work_recommendations', 'requires_human', 'continuation'],
+      properties: {
+        work_item_id: { type: 'string', const: item?.id },
+        program_id: { type: 'string', const: item?.program_id },
+        status: { type: 'string', enum: ['succeeded', 'failed', 'blocked', 'waiting_human', 'cancelled', 'quarantined'] },
+        summary: { type: 'string', minLength: 3 },
+        artifacts: { type: 'array', items: { type: 'object', required: ['kind'] } },
+        checks_run: { type: 'array', items: { anyOf: [{ type: 'string' }, { type: 'object' }] } },
+        next_work_recommendations: { type: 'array' },
+        requires_human: { type: 'boolean' },
+        continuation: { type: 'object' },
+      },
+    },
+    example: {
+      work_item_id: item?.id || '<work_item_id>',
+      program_id: item?.program_id || '<program_id>',
+      status: 'succeeded',
+      summary: 'Completed acceptance criteria and verified gates.',
+      artifacts: [{ kind: 'commit', ref: '<commit_sha>' }],
+      checks_run: ['bun test <targeted-test>'],
+      next_work_recommendations: [],
+      requires_human: false,
+      continuation: { notes: 'No follow-up required.' },
+    },
+  };
+}
+
 export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number; runtime?: string; runStatus?: RunStatus } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
@@ -602,20 +766,34 @@ export function validateCompletion(input: unknown, item?: OpsWorkItem): string[]
   const terminal = ['succeeded', 'failed', 'blocked', 'waiting_human', 'cancelled', 'quarantined'];
   if (typeof input.work_item_id !== 'string' || !input.work_item_id.trim()) errors.push('work_item_id is required');
   if (item && input.work_item_id !== item.id) errors.push(`work_item_id must match ${item.id}`);
-  if (item && input.program_id && input.program_id !== item.program_id) errors.push(`program_id must match ${item.program_id}`);
+  if (typeof input.program_id !== 'string' || !input.program_id.trim()) errors.push('program_id is required');
+  if (item && input.program_id !== item.program_id) errors.push(`program_id must match ${item.program_id}`);
   if (!terminal.includes(String(input.status))) errors.push(`status must be one of: ${terminal.join(', ')}`);
   if (typeof input.summary !== 'string' || input.summary.trim().length < 3) errors.push('summary must be a non-empty string');
-  if (input.artifacts !== undefined && !Array.isArray(input.artifacts)) errors.push('artifacts must be an array when provided');
+  if (!Array.isArray(input.artifacts)) errors.push('artifacts is required and must be an array');
   if (Array.isArray(input.artifacts)) {
     input.artifacts.forEach((a: unknown, idx: number) => {
       if (!isObject(a)) errors.push(`artifacts[${idx}] must be an object`);
       else if (typeof a.kind !== 'string' || !a.kind.trim()) errors.push(`artifacts[${idx}].kind is required`);
     });
   }
+  if (!Array.isArray(input.checks_run)) errors.push('checks_run is required and must be an array');
+  if (Array.isArray(input.checks_run)) {
+    input.checks_run.forEach((check: unknown, idx: number) => {
+      if (typeof check === 'string') {
+        if (!check.trim()) errors.push(`checks_run[${idx}] must be non-empty`);
+      } else if (!isObject(check)) errors.push(`checks_run[${idx}] must be a string or object`);
+    });
+  }
+  if (!Array.isArray(input.next_work_recommendations)) errors.push('next_work_recommendations is required and must be an array');
+  if (typeof input.requires_human !== 'boolean') errors.push('requires_human is required and must be a boolean');
+  if (!isObject(input.continuation)) errors.push('continuation is required and must be an object');
+  if (input.status === 'waiting_human' && input.requires_human !== true) errors.push('waiting_human completions require requires_human=true');
+  if (input.requires_human === true && !['waiting_human', 'blocked'].includes(String(input.status))) errors.push('requires_human=true requires status waiting_human or blocked');
   return errors;
 }
 
-export function completeWorkItem(id: string, completion: unknown, opts: OpsStoreOptions = {}): { ok: true; work_item: OpsWorkItem; run?: OpsWorkRun; released_lease?: OpsLease; artifacts: OpsArtifact[]; unblocked: OpsWorkItem[] } {
+export function completeWorkItem(id: string, completion: unknown, opts: OpsStoreOptions = {}): { ok: true; work_item: OpsWorkItem; run?: OpsWorkRun; released_lease?: OpsLease; artifacts: OpsArtifact[]; unblocked: OpsWorkItem[]; completion_path: string } {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
   const state = readOpsState(path);
@@ -627,6 +805,7 @@ export function completeWorkItem(id: string, completion: unknown, opts: OpsStore
   const at = nowIso(opts.now);
   const activeLease = state.leases.find(l => l.work_item_id === id && l.lease_status === 'active');
   const run = activeLease?.run_id ? state.runs.find(r => r.id === activeLease.run_id) : state.runs.filter(r => r.work_item_id === id).at(-1);
+  const completionPath = persistCompletionJson(path, c, run?.id, id);
   let released: OpsLease | undefined;
   if (activeLease) {
     released = { ...activeLease, lease_status: 'released', released_at: at, heartbeat_at: at };
@@ -641,6 +820,7 @@ export function completeWorkItem(id: string, completion: unknown, opts: OpsStore
       last_event_at: at,
       completion_json: c,
       output_path: c.output_path || run.output_path,
+      completion_path: completionPath,
       error: c.error || run.error,
       provider: c.provider || run.provider,
       model: c.model || run.model,
@@ -667,7 +847,19 @@ export function completeWorkItem(id: string, completion: unknown, opts: OpsStore
       unblocked.push(ready);
     }
   }
-  return { ok: true, work_item: updatedItem, run: updatedRun, released_lease: released, artifacts, unblocked };
+  return { ok: true, work_item: updatedItem, run: updatedRun, released_lease: released, artifacts, unblocked, completion_path: completionPath };
+}
+
+function persistCompletionJson(storePath: string, completion: OpsCompletion, runId: string | undefined, workItemId: string): string {
+  const dir = join(dirname(storePath), 'runs', sanitizePathPart(runId || `work_${workItemId}`));
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'completion.json');
+  writeFileSync(path, JSON.stringify(completion, null, 2) + '\n', { mode: 0o600 });
+  return path;
+}
+
+function sanitizePathPart(v: string): string {
+  return v.replace(/[^A-Za-z0-9_.-]/g, '_').slice(0, 120) || 'unknown';
 }
 
 function runStatusForCompletion(status: OpsCompletion['status']): RunStatus {

@@ -4,6 +4,7 @@ import {
   WORK_ITEM_STATES,
   auditOps,
   buildOpsDashboard,
+  buildWorkPack,
   claimWorkItem,
   completeWorkItem,
   enqueueWorkPacket,
@@ -12,6 +13,7 @@ import {
   listWorkItems,
   opsStatus,
   opsStorePath,
+  renderWorkPackMarkdown,
   renderOpsDashboardMarkdown,
   superviseOps,
   syncProgramsFromYamlFile,
@@ -40,6 +42,7 @@ gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <pat
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
+gbrain ops work pack --id <id> [--out <path>] [--json] [--store <path>]
 gbrain ops work complete --id <id> --completion <completion.json> [--store <path>] [--json]
 gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
 gbrain ops audit --json [--store <path>]
@@ -159,6 +162,17 @@ async function runWork(args: string[]): Promise<void> {
     const result = claimWorkItem(id, worker, { path: storePath(rest) });
     if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.work.claim.v1' });
     else console.log(`${result.work_item.id}\t${result.work_item.state}\t${result.lease.id}`);
+    return;
+  }
+
+  if (action === 'pack') {
+    const id = flagValue(rest, '--id');
+    if (!id) throw new Error('gbrain ops work pack requires --id <id>');
+    const pack = buildWorkPack(id, { path: storePath(rest) });
+    const output = flagValue(rest, '--out');
+    if (output) writeFileSync(output, JSON.stringify(pack, null, 2) + '\n');
+    if (hasFlag(rest, '--json')) printJson({ ok: true, schema: pack.schema, work_pack: pack });
+    else console.log(renderWorkPackMarkdown(pack));
     return;
   }
 

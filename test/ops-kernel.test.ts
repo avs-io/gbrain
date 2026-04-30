@@ -88,6 +88,9 @@ describe('ops kernel', () => {
       summary: 'Implemented with tests.',
       artifacts: [{ kind: 'commit', ref: 'abc1234' }],
       checks_run: ['bun test test/ops-kernel.test.ts'],
+      next_work_recommendations: [],
+      requires_human: false,
+      continuation: {},
     }, { path: store });
     expect(completed.work_item.state).toBe('succeeded');
     expect(completed.released_lease?.lease_status).toBe('released');
@@ -119,7 +122,7 @@ describe('ops kernel', () => {
     const packetPath = join(dir, 'packet.json');
     const completionPath = join(dir, 'completion.json');
     writeFileSync(packetPath, JSON.stringify(packet(work('pr-a1')), null, 2));
-    writeFileSync(completionPath, JSON.stringify({ work_item_id: 'pr-a1', status: 'succeeded', summary: 'CLI completion ok.', artifacts: [{ kind: 'report', path: 'ops/reports/pr-a1.md' }] }, null, 2));
+    writeFileSync(completionPath, JSON.stringify({ work_item_id: 'pr-a1', program_id: 'gbrain-core-build', status: 'succeeded', summary: 'CLI completion ok.', artifacts: [{ kind: 'report', path: 'ops/reports/pr-a1.md' }], checks_run: ['bun test test/ops-kernel.test.ts'], next_work_recommendations: [], requires_human: false, continuation: {} }, null, 2));
 
     const init = JSON.parse(await capture(() => runOpsCommand(null, ['init', '--store', store, '--json'])));
     expect(init.initialized).toBe(true);

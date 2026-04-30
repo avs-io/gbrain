@@ -170,7 +170,7 @@ describe('ops program registry and dashboard', () => {
     enqueueWorkPacket(packet(), { path: store, now: new Date('2026-04-30T06:01:00.000Z') });
     claimWorkItem('running-a3', 'worker-1', { path: store, now: new Date('2026-04-30T06:02:00.000Z'), leaseMinutes: 1 });
     claimWorkItem('done-a1', 'worker-2', { path: store, now: new Date('2026-04-30T06:03:00.000Z') });
-    completeWorkItem('done-a1', { work_item_id: 'done-a1', status: 'succeeded', summary: 'Ops kernel committed.', artifacts: [{ kind: 'commit', ref: 'cad0320' }] }, { path: store, now: new Date('2026-04-30T06:04:00.000Z') });
+    completeWorkItem('done-a1', { work_item_id: 'done-a1', program_id: 'gbrain-core-build', status: 'succeeded', summary: 'Ops kernel committed.', artifacts: [{ kind: 'commit', ref: 'cad0320' }], checks_run: ['bun test test/ops-programs-dashboard.test.ts'], next_work_recommendations: [], requires_human: false, continuation: {} }, { path: store, now: new Date('2026-04-30T06:04:00.000Z') });
     auditOps({ path: store, now: new Date('2026-04-30T06:05:00.000Z') });
 
     const dashboard = buildOpsDashboard({ path: store, now: new Date('2026-04-30T06:05:00.000Z') });
