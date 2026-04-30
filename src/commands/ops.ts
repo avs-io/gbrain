@@ -13,6 +13,7 @@ import {
   opsStatus,
   opsStorePath,
   renderOpsDashboardMarkdown,
+  superviseOps,
   syncProgramsFromYamlFile,
   type WorkItemState,
 } from '../core/ops/kernel.ts';
@@ -40,6 +41,7 @@ gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|f
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
 gbrain ops work complete --id <id> --completion <completion.json> [--store <path>] [--json]
+gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
 gbrain ops audit --json [--store <path>]
 
 Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifacts, SupervisorTicks, Interrupts, and BudgetLedger. This command never sends external messages, pushes, mutates trusted memory, or crawls the web.`);
@@ -99,6 +101,20 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
 
   if (sub === 'work') {
     await runWork(rest);
+    return;
+  }
+
+  if (sub === 'supervise') {
+    if (!hasFlag(rest, '--once')) throw new Error('gbrain ops supervise currently requires --once');
+    const result = superviseOps({
+      path: storePath(rest),
+      maxClaims: numberFlag(rest, '--max-claims'),
+      maxRunning: numberFlag(rest, '--max-running'),
+      leaseMinutes: numberFlag(rest, '--lease-minutes'),
+      workerId: flagValue(rest, '--worker'),
+    });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.supervise.v1' });
+    else console.log(`${result.status}\tclaimed=${result.claimed.length}\talerts=${result.alerts.length}`);
     return;
   }
 
@@ -164,4 +180,12 @@ async function runWork(args: string[]): Promise<void> {
 function parseWorkState(raw: string): WorkItemState {
   if (!WORK_ITEM_STATES.includes(raw as WorkItemState)) throw new Error(`invalid work state: ${raw}`);
   return raw as WorkItemState;
+}
+
+function numberFlag(args: string[], flag: string): number | undefined {
+  const raw = flagValue(args, flag);
+  if (raw === undefined) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) throw new Error(`${flag} must be a number`);
+  return n;
 }

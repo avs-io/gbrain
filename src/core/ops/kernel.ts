@@ -131,6 +131,7 @@ export interface OpsSupervisorTick {
   blocked_count: number;
   waiting_human_count: number;
   spawned_count: number;
+  claimed_count?: number;
   alerts: OpsAuditAlert[];
   decisions: unknown[];
 }
@@ -554,7 +555,7 @@ export function listWorkItems(filter: { state?: WorkItemState }, opts: OpsStoreO
   return [...items].sort((a, b) => b.priority - a.priority || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id));
 }
 
-export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
+export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number; runtime?: string; runStatus?: RunStatus } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
   const state = readOpsState(path);
@@ -571,8 +572,8 @@ export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOption
     work_item_id: id,
     program_id: item.program_id,
     worker_id: workerId,
-    runtime: item.worker_kind,
-    status: 'running',
+    runtime: opts.runtime || item.worker_kind,
+    status: opts.runStatus || 'running',
     started_at: at,
     last_event_at: at,
     created_at: at,
@@ -693,38 +694,189 @@ function normalizeArtifact(input: NonNullable<OpsCompletion['artifacts']>[number
   };
 }
 
-export function auditOps(opts: OpsStoreOptions = {}): { ok: true; status: 'green' | 'amber' | 'red'; path: string; counts: ReturnType<typeof countOps>; alerts: OpsAuditAlert[]; tick: OpsSupervisorTick } {
+export interface OpsSuperviseResult {
+  ok: true;
+  status: 'green' | 'amber' | 'red';
+  path: string;
+  counts: ReturnType<typeof countOps>;
+  alerts: OpsAuditAlert[];
+  tick: OpsSupervisorTick;
+  expired_leases: OpsLease[];
+  unblocked: OpsWorkItem[];
+  claimed: Array<{ work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun }>;
+  decisions: unknown[];
+}
+
+export interface OpsSuperviseOptions extends OpsStoreOptions {
+  maxClaims?: number;
+  maxRunning?: number;
+  leaseMinutes?: number;
+  workerId?: string;
+}
+
+const ACTIVE_RUN_STATUSES = new Set<RunStatus>(['queued', 'starting', 'running']);
+
+export function superviseOps(opts: OpsSuperviseOptions = {}): OpsSuperviseResult {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
-  const state = readOpsState(path);
-  const counts = countOps(state, opts.now);
+  const now = opts.now || new Date();
+  const at = nowIso(now);
+  const decisions: unknown[] = [];
+  const expiredLeases: OpsLease[] = [];
+  const unblocked: OpsWorkItem[] = [];
+  const claimed: OpsSuperviseResult['claimed'] = [];
+  const maxClaims = Math.max(0, Math.floor(opts.maxClaims ?? 1));
+  const maxRunning = Math.max(0, Math.floor(opts.maxRunning ?? 1));
+  const workerId = opts.workerId || 'ops-supervisor-placeholder';
+
+  let state = readOpsState(path);
+  for (const lease of state.leases.filter(l => l.lease_status === 'active').sort((a, b) => a.claimed_at.localeCompare(b.claimed_at) || a.id.localeCompare(b.id))) {
+    const item = state.work_items.find(w => w.id === lease.work_item_id);
+    if (item && terminalState(item.state)) {
+      const released: OpsLease = { ...lease, lease_status: 'released', released_at: at, heartbeat_at: at };
+      appendEvent(path, 'lease_upsert', released, now);
+      decisions.push({ action: 'release_terminal_lease', work_item_id: item.id, lease_id: lease.id, reason: `work item already ${item.state}` });
+      continue;
+    }
+    if (Date.parse(lease.expires_at) > now.getTime()) {
+      if (item && !activeState(item.state)) {
+        const running: OpsWorkItem = { ...item, state: 'running', updated_at: at, last_state_reason: `reconciled active lease ${lease.id}` };
+        appendEvent(path, 'work_upsert', running, now);
+        decisions.push({ action: 'reconcile_active_lease', work_item_id: item.id, lease_id: lease.id });
+      }
+      continue;
+    }
+
+    const expired: OpsLease = { ...lease, lease_status: 'expired', released_at: at, heartbeat_at: at };
+    appendEvent(path, 'lease_upsert', expired, now);
+    expiredLeases.push(expired);
+    decisions.push({ action: 'expire_stale_lease', work_item_id: lease.work_item_id, lease_id: lease.id, expired_at: at });
+
+    const run = lease.run_id ? state.runs.find(r => r.id === lease.run_id) : undefined;
+    if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
+      const timedOut: OpsWorkRun = { ...run, status: 'timed_out', ended_at: at, last_event_at: at, error: run.error || `lease expired at ${lease.expires_at}` };
+      appendEvent(path, 'run_upsert', timedOut, now);
+      decisions.push({ action: 'mark_run_timed_out', work_item_id: lease.work_item_id, run_id: run.id });
+    }
+    if (item && activeState(item.state)) {
+      const retryState: WorkItemState = depsSatisfied(item.dependencies, state) ? 'ready' : 'approved';
+      const retried: OpsWorkItem = { ...item, state: retryState, updated_at: at, last_state_reason: `lease ${lease.id} expired; returned to ${retryState}` };
+      appendEvent(path, 'work_upsert', retried, now);
+      decisions.push({ action: 'return_expired_work_to_backlog', work_item_id: item.id, state: retryState });
+    }
+  }
+
+  state = readOpsState(path);
+  for (const item of [...state.work_items].sort(sortWorkItems)) {
+    if (item.state !== 'approved') continue;
+    if (!depsSatisfied(item.dependencies, state)) continue;
+    const ready: OpsWorkItem = { ...item, state: 'ready', updated_at: at, last_state_reason: 'dependencies satisfied during supervisor tick' };
+    appendEvent(path, 'work_upsert', ready, now);
+    unblocked.push(ready);
+    decisions.push({ action: 'unblock_dependencies_satisfied', work_item_id: item.id, dependencies: item.dependencies });
+  }
+
+  state = readOpsState(path);
+  const runningCount = activeWorkCount(state, now);
+  const availableSlots = Math.max(0, maxRunning - runningCount);
+  const claimLimit = Math.min(maxClaims, availableSlots);
+  if (claimLimit <= 0) {
+    decisions.push({ action: 'claim_skipped', reason: availableSlots <= 0 ? 'capacity_full' : 'max_claims_zero', max_running: maxRunning, running_count: runningCount });
+  } else {
+    const candidates = readyClaimCandidates(state, now);
+    for (const item of candidates.slice(0, claimLimit)) {
+      const result = claimWorkItem(item.id, workerId, { path, now, leaseMinutes: opts.leaseMinutes || 30, runtime: 'supervisor_placeholder', runStatus: 'running' });
+      claimed.push(result);
+      decisions.push({ action: 'claim_work_item', work_item_id: item.id, lease_id: result.lease.id, run_id: result.run.id, runtime: result.run.runtime });
+    }
+    if (candidates.length === 0) decisions.push({ action: 'claim_skipped', reason: 'no_ready_claim_candidates' });
+  }
+
+  state = readOpsState(path);
+  const counts = countOps(state, now);
+  const alerts = buildOpsAlerts(state, now);
+  if (expiredLeases.length) alerts.push({ kind: 'stale_active_lease', severity: 'amber', message: 'Supervisor expired stale active leases and returned eligible work to the backlog.', lease_ids: expiredLeases.map(l => l.id), work_item_ids: expiredLeases.map(l => l.work_item_id) });
+  const status: 'green' | 'amber' | 'red' = alerts.some(a => a.severity === 'red') ? 'red' : alerts.length ? 'amber' : 'green';
+  const tick: OpsSupervisorTick = {
+    id: nextNumericId(state.supervisor_ticks),
+    tick_at: at,
+    status,
+    ready_count: counts.work_items.ready || 0,
+    running_count: counts.active_count,
+    blocked_count: counts.work_items.blocked || 0,
+    waiting_human_count: counts.work_items.waiting_human || 0,
+    spawned_count: 0,
+    claimed_count: claimed.length,
+    alerts,
+    decisions,
+  };
+  appendEvent(path, 'supervisor_tick', tick, now);
+  return { ok: true, status, path, counts, alerts, tick, expired_leases: expiredLeases, unblocked, claimed, decisions };
+}
+
+function readyClaimCandidates(state: OpsState, now: Date): OpsWorkItem[] {
+  const activeProgramIds = new Set(state.programs.filter(p => p.status === 'active').map(p => p.id));
+  const hasPrograms = state.programs.length > 0;
+  return [...state.work_items]
+    .filter(w => w.state === 'ready')
+    .filter(w => !w.not_before || Date.parse(w.not_before) <= now.getTime())
+    .filter(w => !hasPrograms || activeProgramIds.has(w.program_id))
+    .filter(w => !state.leases.some(l => l.work_item_id === w.id && l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime()))
+    .sort((a, b) => {
+      const pa = state.programs.find(p => p.id === a.program_id)?.priority || 0;
+      const pb = state.programs.find(p => p.id === b.program_id)?.priority || 0;
+      return b.priority - a.priority || pb - pa || a.created_at.localeCompare(b.created_at) || a.id.localeCompare(b.id);
+    });
+}
+
+function activeRunCount(state: OpsState): number {
+  return state.runs.filter(r => ACTIVE_RUN_STATUSES.has(r.status)).length;
+}
+
+function activeWorkCount(state: OpsState, now: Date): number {
+  const activeValidLeaseWorkIds = new Set(state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime()).map(l => l.work_item_id));
+  const activeRunWorkIds = new Set(state.runs.filter(r => ACTIVE_RUN_STATUSES.has(r.status)).map(r => r.work_item_id));
+  return state.work_items.filter(w => activeState(w.state) || activeValidLeaseWorkIds.has(w.id) || activeRunWorkIds.has(w.id)).length;
+}
+
+function buildOpsAlerts(state: OpsState, now: Date): OpsAuditAlert[] {
   const alerts: OpsAuditAlert[] = [];
   const ready = state.work_items.filter(w => w.state === 'ready');
-  const active = state.work_items.filter(w => activeState(w.state));
-  const activeLeases = state.leases.filter(l => l.lease_status === 'active');
-  if (ready.length > 0 && active.length === 0 && activeLeases.length === 0) {
-    alerts.push({ kind: 'no_idle', severity: 'red', message: 'Ready approved work exists but no work item is active/running and no active lease exists.', work_item_ids: ready.map(w => w.id) });
+  const activeValidLeases = state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime());
+  if (ready.length > 0 && activeValidLeases.length === 0 && activeRunCount(state) === 0) {
+    alerts.push({ kind: 'no_idle', severity: 'red', message: 'Ready approved work exists but no active run or unexpired active lease exists.', work_item_ids: ready.map(w => w.id) });
   }
-  const staleLeases = activeLeases.filter(l => Date.parse(l.expires_at) <= (opts.now?.getTime() || Date.now()));
+  const staleLeases = state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) <= now.getTime());
   if (staleLeases.length) alerts.push({ kind: 'stale_active_lease', severity: 'amber', message: 'Active leases have expired and need supervisor inspection.', lease_ids: staleLeases.map(l => l.id), work_item_ids: staleLeases.map(l => l.work_item_id) });
   const blocked = state.work_items.filter(w => w.state === 'blocked');
   if (blocked.length) alerts.push({ kind: 'blocked_work', severity: 'amber', message: 'Blocked work exists.', work_item_ids: blocked.map(w => w.id) });
   const waiting = state.work_items.filter(w => w.state === 'waiting_human');
   if (waiting.length) alerts.push({ kind: 'waiting_human', severity: 'amber', message: 'Work is waiting for human input.', work_item_ids: waiting.map(w => w.id) });
+  return alerts;
+}
+
+export function auditOps(opts: OpsStoreOptions = {}): { ok: true; status: 'green' | 'amber' | 'red'; path: string; counts: ReturnType<typeof countOps>; alerts: OpsAuditAlert[]; tick: OpsSupervisorTick } {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const state = readOpsState(path);
+  const now = opts.now || new Date();
+  const counts = countOps(state, now);
+  const alerts = buildOpsAlerts(state, now);
   const status: 'green' | 'amber' | 'red' = alerts.some(a => a.severity === 'red') ? 'red' : alerts.length ? 'amber' : 'green';
   const tick: OpsSupervisorTick = {
     id: nextNumericId(state.supervisor_ticks),
-    tick_at: nowIso(opts.now),
+    tick_at: nowIso(now),
     status,
     ready_count: counts.work_items.ready || 0,
-    running_count: (counts.work_items.running || 0) + (counts.work_items.leased || 0),
+    running_count: counts.active_count,
     blocked_count: counts.work_items.blocked || 0,
     waiting_human_count: counts.work_items.waiting_human || 0,
     spawned_count: 0,
+    claimed_count: 0,
     alerts,
     decisions: [],
   };
-  appendEvent(path, 'supervisor_tick', tick, opts.now);
+  appendEvent(path, 'supervisor_tick', tick, now);
   return { ok: true, status, path, counts, alerts, tick };
 }
 
@@ -748,7 +900,8 @@ export function countOps(state: OpsState, now?: Date): {
     for (const row of rows) out[get(row) || 'unknown'] = (out[get(row) || 'unknown'] || 0) + 1;
     return out;
   };
-  const nowMs = now?.getTime() || Date.now();
+  const nowDate = now || new Date();
+  const nowMs = nowDate.getTime();
   const activeLeases = state.leases.filter(l => l.lease_status === 'active');
   return {
     programs: by(state.programs, p => p.status),
@@ -759,7 +912,7 @@ export function countOps(state: OpsState, now?: Date): {
     supervisor_ticks: state.supervisor_ticks.length,
     interrupts: by(state.interrupts, i => i.status),
     budget_ledger: state.budget_ledger.length,
-    active_count: state.work_items.filter(w => activeState(w.state)).length,
+    active_count: activeWorkCount(state, nowDate),
     ready_count: state.work_items.filter(w => w.state === 'ready').length,
     stale_active_lease_count: activeLeases.filter(l => Date.parse(l.expires_at) <= nowMs).length,
   };
