@@ -1,6 +1,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import { extractWorldCandidatesFromScout, validateWorldExtractionReport } from '../core/world/extractor.ts';
+import { backfillTimelineEntriesFromExtractions, readWorldExtractionReports } from '../core/intelligence/data-hygiene.ts';
 import {
   appendSynthesisSurface,
   compileTopicState,
@@ -49,7 +50,21 @@ export async function runWorldCommand(_engine: unknown, args: string[]): Promise
   const [sub, ...rest] = args;
   const flags = parseArgs(rest);
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log('gbrain world extract <topic> --from-run <scout-report.json> --json [--out <world-extraction.json>]\ngbrain world topic state <slug> --from-extraction <world-extraction.json> [--from-claims <claim-ledger.jsonl>] [--since <iso>] [--json] [--out <topic-state.json>] [--no-store]');
+    console.log('gbrain world extract <topic> --from-run <scout-report.json> --json [--out <world-extraction.json>]\ngbrain world topic state <slug> --from-extraction <world-extraction.json> [--from-claims <claim-ledger.jsonl>] [--since <iso>] [--json] [--out <topic-state.json>] [--no-store]\ngbrain world timeline backfill --from-extraction <world-extraction.json> [--json] [--out <timeline-entries.jsonl>] [--dry-run]');
+    return;
+  }
+
+  if (sub === 'timeline') {
+    const action = typeof flags._pos1 === 'string' ? flags._pos1 : undefined;
+    if (action !== 'backfill') throw new Error('world timeline requires backfill');
+    const fromExtraction = typeof flags.from_extraction === 'string' ? flags.from_extraction : typeof flags.from_world_extraction === 'string' ? flags.from_world_extraction : undefined;
+    if (!fromExtraction) throw new Error('world timeline backfill requires --from-extraction <world-extraction.json>');
+    const result = backfillTimelineEntriesFromExtractions(readWorldExtractionReports(fromExtraction), {
+      path: typeof flags.out === 'string' ? flags.out : undefined,
+      dryRun: Boolean(flags.dry_run),
+    });
+    const payload = { ok: true, ...result, dry_run: Boolean(flags.dry_run) };
+    console.log(flags.json ? JSON.stringify(payload, null, 2) : `timeline_entries\tbefore=${result.before}\tadded=${result.added}\tafter=${result.after}\tpath=${result.path}`);
     return;
   }
 

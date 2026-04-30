@@ -274,6 +274,28 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
     // Best-effort. A broken JSONL should not stop doctor.
   }
 
+  // 3d. Intelligence substrate hygiene (filesystem/local candidate stores).
+  // PR27 hardens the candidate/review-only substrate without requiring a
+  // live database fixture: timeline coverage, source-span refs, claim evidence,
+  // stale topic surfaces, and governed privacy/action routes are checked from
+  // deterministic JSONL stores under the active GBrain home.
+  try {
+    const { analyzeIntelligenceSubstrateStores } = await import('../core/intelligence/data-hygiene.ts');
+    for (const result of analyzeIntelligenceSubstrateStores()) {
+      checks.push({
+        name: result.name,
+        status: result.status,
+        message: result.rationale ? `${result.message} (${result.rationale})` : result.message,
+      });
+    }
+  } catch (e) {
+    checks.push({
+      name: 'intelligence_substrate_hygiene',
+      status: 'warn',
+      message: `Could not scan local intelligence substrate stores: ${e instanceof Error ? e.message : String(e)}`,
+    });
+  }
+
   // --- DB checks (skip if --fast or no engine) ---
 
   if (fastMode || !engine) {
