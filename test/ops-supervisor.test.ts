@@ -59,7 +59,8 @@ describe('ops supervisor daemon v1', () => {
     const supervised = superviseOps({ path: store, now: new Date('2026-04-30T06:02:00.000Z') });
     expect(supervised.status).toBe('green');
     expect(supervised.claimed).toHaveLength(1);
-    expect(supervised.claimed[0].run.runtime).toBe('supervisor_placeholder');
+    expect(supervised.claimed[0].run.runtime).toBe('codex');
+    expect(supervised.claimed[0].run.provider).toBe('codex');
     expect(supervised.tick.claimed_count).toBe(1);
 
     const state = readOpsState(store);

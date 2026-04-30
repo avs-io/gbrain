@@ -17,10 +17,15 @@ import {
   roadmapStatus,
   reconcileOpenClawTasks,
   opsStorePath,
+  parseWorkerProfilesYaml,
+  readOpsState,
   renderWorkPackMarkdown,
   renderOpsDashboardMarkdown,
+  selectWorkerRoute,
   superviseOps,
   syncProgramsFromYamlFile,
+  syncWorkerProfilesFromYamlFile,
+  listWorkerProfiles,
   type WorkItemState,
 } from '../core/ops/kernel.ts';
 import {
@@ -47,6 +52,8 @@ export async function runOpsCommand(_engine: unknown, args: string[]): Promise<v
 gbrain ops status --json [--store <path>]
 gbrain ops programs list --json [--store <path>]
 gbrain ops programs sync --file <programs.yaml> --json [--store <path>]
+gbrain ops workers list --json [--store <path>]
+gbrain ops workers sync --file <worker_profiles.yaml> --json [--store <path>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -55,9 +62,11 @@ gbrain ops work pack --id <id> [--out <path>] [--json] [--store <path>]
 gbrain ops work complete --id <id> --completion <completion.json> [--store <path>] [--json]
 gbrain ops roadmap import --file <roadmap.yaml|json> --json [--store <path>]
 gbrain ops roadmap status --flow-id <id> --json [--store <path>]
+gbrain ops workers list --json [--profiles <worker_profiles.yaml>]
+gbrain ops workers route --id <work_item_id> --json [--store <path>] [--profiles <worker_profiles.yaml>]
 gbrain ops dispatch --id <work_item_id> --dry-run --json [--store <path>] [--provider <p>] [--model <m>] [--openclaw-task-id <id>] [--session-key <key>]
 gbrain ops reconcile --fixture <openclaw-tasks.json> --json [--store <path>]
-gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1]
+gbrain ops supervise --once --json [--store <path>] [--max-claims 1] [--max-running 1] [--profiles <worker_profiles.yaml>]
 gbrain ops install-launchagent (--dry-run|--yes) [--json] [--home <dir>] [--gbrain-dir <dir>] [--log-dir <dir>] [--interval-seconds 180]
 gbrain ops heartbeat-check --json [--store <path>] [--max-tick-age-minutes 10]
 gbrain ops heartbeat-template --markdown [--output <HEARTBEAT.md>]
@@ -102,6 +111,40 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     throw new Error('gbrain ops programs supports: list, sync');
   }
 
+  if (sub === 'workers') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action === 'list') {
+      const profilesFile = flagValue(actionArgs, '--profiles');
+      const worker_profiles = profilesFile ? parseWorkerProfilesYaml(readFileSync(profilesFile, 'utf8')).workers : listWorkerProfiles({ path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.workers.list.v1', worker_profiles });
+      else for (const p of worker_profiles) console.log(`${p.id}\t${p.provider}\t${p.model || ''}\t${p.worker_kind}`);
+      return;
+    }
+    if (action === 'sync') {
+      const file = flagValue(actionArgs, '--file');
+      if (!file) throw new Error('gbrain ops workers sync requires --file <worker_profiles.yaml>');
+      const result = syncWorkerProfilesFromYamlFile(file, { path: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ...result, schema: 'gbrain.ops.workers.sync.v1' });
+      else console.log(`synced ${result.upserted_count} worker profiles from ${result.source_file}`);
+      return;
+    }
+    if (action === 'route') {
+      const id = flagValue(actionArgs, '--id');
+      if (!id) throw new Error('gbrain ops workers route requires --id <work_item_id>');
+      const profilesFile = flagValue(actionArgs, '--profiles');
+      const state = readOpsState(storePath(actionArgs));
+      const item = state.work_items.find(w => w.id === id);
+      if (!item) throw new Error(`work item not found: ${id}`);
+      const routeState = profilesFile ? { ...state, worker_profiles: parseWorkerProfilesYaml(readFileSync(profilesFile, 'utf8')).workers } : state;
+      const route = selectWorkerRoute(item, routeState);
+      if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.workers.route.v1', route });
+      else console.log(`${route.work_item_id}\t${route.status}\t${route.worker_profile_id || ''}\t${route.provider}\t${route.reason}`);
+      return;
+    }
+    throw new Error('gbrain ops workers supports: list, sync, route');
+  }
+
   if (sub === 'dashboard') {
     const dashboard = buildOpsDashboard({ path: storePath(rest) });
     if (hasFlag(rest, '--json')) {
@@ -127,6 +170,7 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     await runRoadmap(rest);
     return;
   }
+
 
   if (sub === 'dispatch') {
     const id = flagValue(rest, '--id');
@@ -163,6 +207,8 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
 
   if (sub === 'supervise') {
     if (!hasFlag(rest, '--once')) throw new Error('gbrain ops supervise currently requires --once');
+    const profilesFile = flagValue(rest, '--profiles');
+    if (profilesFile) syncWorkerProfilesFromYamlFile(profilesFile, { path: storePath(rest) });
     const result = superviseOps({
       path: storePath(rest),
       maxClaims: numberFlag(rest, '--max-claims'),

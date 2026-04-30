@@ -141,7 +141,8 @@ describe('ops roadmap flow manager', () => {
 
     const supervised = superviseOps({ path: store, now: new Date('2026-04-30T06:07:00.000Z') });
     expect(supervised.claimed.map(c => c.work_item.id)).toEqual(['pr20']);
-    expect(supervised.claimed[0].run.runtime).toBe('supervisor_placeholder');
+    expect(supervised.claimed[0].run.runtime).toBe('codex');
+    expect(supervised.claimed[0].run.provider).toBe('codex');
 
     const after = roadmapStatus('gbrain-pr-roadmap-2026-04-30', { path: store, now: new Date('2026-04-30T06:08:00.000Z') });
     expect(after.current_step?.id).toBe('pr20');

@@ -11,6 +11,7 @@ export const OPS_WORK_PACK_SCHEMA = 'gbrain.ops.work_pack.v1';
 export const OPS_DISPATCH_PACKET_SCHEMA = 'gbrain.ops.openclaw_dispatch_packet.v1';
 export const OPS_ROADMAP_FLOW_SCHEMA = 'gbrain.ops.roadmap_flow.v1';
 export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
+export const OPS_WORKER_PROFILE_SCHEMA = 'gbrain.ops.worker_profile.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -100,6 +101,7 @@ export interface OpsWorkRun {
   id: string;
   work_item_id: string;
   program_id: string;
+  worker_profile_id?: string;
   worker_id?: string;
   provider?: string;
   model?: string;
@@ -162,6 +164,27 @@ export interface OpsSupervisorTick {
   decisions: unknown[];
 }
 
+export interface OpsWorkerProfile {
+  schema: typeof OPS_WORKER_PROFILE_SCHEMA;
+  id: string;
+  title: string;
+  worker_kind: WorkerKind;
+  runtime: OpenClawDispatchRuntime | 'supervisor_placeholder' | string;
+  provider: string;
+  model?: string;
+  public_cloud: boolean;
+  allowed_privacy_tiers: string[];
+  preferred_lanes: string[];
+  task_types: string[];
+  priority: number;
+  max_concurrency: number;
+  daily_task_budget?: number;
+  daily_call_budget?: number;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface OpsInterrupt {
   id: string;
   severity: InterruptSeverity;
@@ -196,6 +219,7 @@ export interface OpsState {
   schema: typeof OPS_KERNEL_SCHEMA;
   programs: OpsProgram[];
   work_items: OpsWorkItem[];
+  worker_profiles: OpsWorkerProfile[];
   roadmap_flows: OpsRoadmapFlow[];
   runs: OpsWorkRun[];
   leases: OpsLease[];
@@ -265,6 +289,7 @@ export interface OpsDispatchPacket {
   work_item_id: string;
   run_id: string;
   lease_id?: string;
+  worker_profile_id?: string;
   worker_kind: WorkerKind;
   runtime: OpenClawDispatchRuntime;
   provider: string;
@@ -276,7 +301,7 @@ export interface OpsDispatchPacket {
   session_id?: string;
 }
 
-type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
+type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
 
 interface OpsEvent<T = unknown> {
   schema: typeof OPS_EVENT_SCHEMA;
@@ -288,6 +313,36 @@ interface OpsEvent<T = unknown> {
 export interface OpsStoreOptions { path?: string; now?: Date; }
 
 export interface ProgramSyncResult { ok: true; path: string; source_file: string; programs: OpsProgram[]; upserted_count: number; }
+
+export interface WorkerProfileSyncResult { ok: true; path: string; source_file: string; worker_profiles: OpsWorkerProfile[]; upserted_count: number; }
+
+export interface OpsWorkerProfilesConfig { workers: OpsWorkerProfile[]; }
+
+export type WorkerRouteStatus = 'selected' | 'held' | 'denied' | 'legacy';
+
+export interface OpsWorkerRouteDecision {
+  status: WorkerRouteStatus;
+  work_item_id: string;
+  worker_profile_id?: string;
+  worker_kind: WorkerKind;
+  runtime: OpenClawDispatchRuntime | 'supervisor_placeholder' | string;
+  provider: string;
+  model?: string;
+  reason: string;
+  budget?: { max_concurrency: number; active_concurrency: number; daily_task_budget?: number; daily_tasks_used: number; daily_call_budget?: number; daily_calls_used: number; day: string };
+  skipped: Array<{ worker_profile_id: string; reason: string }>;
+}
+
+export interface OpsRouteDecision {
+  ok: boolean;
+  reason: string;
+  work_item_id: string;
+  profile?: OpsWorkerProfile;
+  provider?: string;
+  model?: string;
+  runtime?: string;
+  defer?: 'privacy_route_denied' | 'concurrency_full' | 'budget_exceeded' | 'no_matching_profile';
+}
 
 export interface OpsRoadmapImportResult { ok: true; schema: typeof OPS_ROADMAP_FLOW_SCHEMA; path: string; source_file?: string; flow: OpsRoadmapFlow; programs: OpsProgram[]; work_items: OpsWorkItem[]; }
 
@@ -335,7 +390,7 @@ export function opsStorePath(): string {
 }
 
 export function emptyOpsState(): OpsState {
-  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
+  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
 }
 
 export function initOpsStore(path = opsStorePath(), now?: Date): { ok: true; path: string; initialized: boolean } {
@@ -374,6 +429,7 @@ function applyEvent(state: OpsState, evt: OpsEvent): void {
   switch (evt.type) {
     case 'program_upsert': upsertById(state.programs, p as OpsProgram); break;
     case 'work_upsert': upsertById(state.work_items, p as OpsWorkItem); break;
+    case 'worker_profile_upsert': upsertById(state.worker_profiles, p as OpsWorkerProfile); break;
     case 'roadmap_flow_upsert': upsertById(state.roadmap_flows, p as OpsRoadmapFlow); break;
     case 'run_upsert': upsertById(state.runs, p as OpsWorkRun); break;
     case 'lease_upsert': upsertById(state.leases, p as OpsLease); break;
@@ -512,6 +568,122 @@ export function syncProgramsFromYamlFile(file: string, opts: OpsStoreOptions = {
   const programs = parsed.programs.map(p => normalizeProgram(p, opts.now));
   for (const program of programs) appendEvent(path, 'program_upsert', program, opts.now);
   return { ok: true, path, source_file: file, programs, upserted_count: programs.length };
+}
+
+export function normalizeWorkerProfile(input: unknown, now?: Date): OpsWorkerProfile {
+  if (!isObject(input)) throw new Error('worker profile must be an object');
+  const id = String(input.id || '').trim();
+  if (!id) throw new Error('worker_profile.id is required');
+  const at = nowIso(now);
+  const budgets = object(input.budgets);
+  const provider = String(input.provider || '').trim();
+  if (!provider) throw new Error(`worker_profile ${id} requires provider`);
+  const workerKind = String(input.worker_kind || input.kind || id);
+  return {
+    schema: OPS_WORKER_PROFILE_SCHEMA,
+    id,
+    title: String(input.title || id),
+    worker_kind: workerKind,
+    runtime: String(input.runtime || runtimeForWorkerKind(workerKind)),
+    provider,
+    model: typeof input.model === 'string' ? input.model : undefined,
+    public_cloud: input.public_cloud === true || isMiniMaxRoute(provider, typeof input.model === 'string' ? input.model : undefined, workerKind),
+    allowed_privacy_tiers: stringArray(input.allowed_privacy_tiers || input.privacy_tiers || input.privacy_allowed).map(normalizedPrivacyTier),
+    preferred_lanes: stringArray(input.preferred_lanes || input.lanes),
+    task_types: stringArray(input.task_types || input.tasks),
+    priority: numberOr(input.priority, 50),
+    max_concurrency: Math.max(1, Math.floor(numberOr(input.max_concurrency ?? input.max_concurrent ?? budgets.max_concurrency ?? budgets.max_concurrent, 1))),
+    daily_task_budget: optionalNonNegativeInteger(input.daily_task_budget ?? budgets.daily_task_budget ?? budgets.daily_tasks ?? budgets.tasks_per_day ?? budgets.codex_tasks_per_day ?? budgets.max_daily_tasks),
+    daily_call_budget: optionalNonNegativeInteger(input.daily_call_budget ?? budgets.daily_call_budget ?? budgets.daily_calls ?? budgets.calls_per_day ?? budgets.minimax_calls_per_day ?? budgets.max_daily_calls),
+    metadata: object(input.metadata),
+    created_at: typeof input.created_at === 'string' ? input.created_at : at,
+    updated_at: at,
+  };
+}
+
+export function syncWorkerProfilesFromYamlFile(file: string, opts: OpsStoreOptions = {}): WorkerProfileSyncResult {
+  const raw = readFileSync(file, 'utf8');
+  const parsed = parseWorkerProfilesYaml(raw);
+
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const profiles = parsed.workers.map(p => normalizeWorkerProfile(p, opts.now));
+  for (const profile of profiles) appendEvent(path, 'worker_profile_upsert', profile, opts.now);
+  return { ok: true, path, source_file: file, worker_profiles: profiles, upserted_count: profiles.length };
+}
+
+export function parseWorkerProfilesYaml(raw: string): OpsWorkerProfilesConfig {
+  const parsed = parseSimpleYaml(raw);
+  if (!isObject(parsed)) throw new Error('worker profile YAML must be a mapping');
+  const rawProfiles = Array.isArray(parsed.workers) ? parsed.workers : parsed.worker_profiles;
+  if (!Array.isArray(rawProfiles)) throw new Error('worker profile YAML must contain workers: [...] or worker_profiles: [...]');
+  return { workers: rawProfiles.map(p => normalizeWorkerProfile(p)) };
+}
+
+export function defaultWorkerProfiles(): OpsWorkerProfile[] {
+  return [
+    normalizeWorkerProfile({
+      id: 'qwen-private-extractor',
+      title: 'Qwen private extractor',
+      worker_kind: 'qwen_local',
+      provider: 'local-qwen',
+      model: 'mlx-community/Qwen3.6-35B-A3B-4bit',
+      allowed_privacy_tiers: ['P0', 'P1', 'P2'],
+      preferred_lanes: ['private_extraction', 'memory_extraction', 'extraction'],
+      task_types: ['private_extraction', 'extraction'],
+      max_concurrency: 2,
+      daily_task_budget: 100000,
+    }),
+    normalizeWorkerProfile({
+      id: 'minimax-public-scout',
+      title: 'MiniMax public scout',
+      worker_kind: 'minimax',
+      provider: 'minimax',
+      model: 'MiniMax-M2.7',
+      public_cloud: true,
+      allowed_privacy_tiers: ['P3'],
+      preferred_lanes: ['public_scout', 'scout', 'research'],
+      task_types: ['public_scout', 'world_scout'],
+      max_concurrency: 20,
+      daily_task_budget: 5000,
+      daily_call_budget: 5000,
+    }),
+    normalizeWorkerProfile({
+      id: 'codex-pr-engineer',
+      title: 'Codex PR engineer',
+      worker_kind: 'acp_codex',
+      runtime: 'codex',
+      provider: 'codex',
+      model: 'openai-codex/default',
+      allowed_privacy_tiers: ['P1', 'P2'],
+      preferred_lanes: ['code_pr', 'code', 'pr', 'engineering'],
+      task_types: ['code_pr', 'code'],
+      max_concurrency: 2,
+      daily_task_budget: 20,
+    }),
+    normalizeWorkerProfile({
+      id: 'claude-reviewer',
+      title: 'Claude reviewer',
+      worker_kind: 'claude_code',
+      provider: 'claude-code',
+      model: 'claude-code/default',
+      allowed_privacy_tiers: ['P2', 'P3'],
+      preferred_lanes: ['review', 'code_review', 'architecture_review'],
+      task_types: ['review'],
+      max_concurrency: 1,
+      daily_task_budget: 10,
+    }),
+  ];
+}
+
+export function routeWorkItemToWorkerProfile(item: OpsWorkItem, state: OpsState, opts: { profiles?: OpsWorkerProfile[]; now?: Date } = {}): OpsRouteDecision {
+  const routed = selectWorkerRoute(item, opts.profiles ? { ...state, worker_profiles: opts.profiles } : state, { now: opts.now });
+  const profile = routed.worker_profile_id ? (opts.profiles || state.worker_profiles).find(p => p.id === routed.worker_profile_id) : undefined;
+  if (routed.status === 'selected' || routed.status === 'legacy') return { ok: true, work_item_id: item.id, reason: routed.reason, profile, provider: routed.provider, model: routed.model, runtime: routed.runtime };
+  const policyDenied = routed.reason.includes('privacy') || routed.reason.includes('MiniMax') || routed.reason.includes('route guardrails');
+  const concurrencyFull = routed.status === 'held' && routed.reason.includes('max_concurrency');
+  const budgetExceeded = routed.status === 'held' || routed.reason.includes('budget');
+  return { ok: false, work_item_id: item.id, reason: routed.reason, profile, provider: routed.provider, model: routed.model, runtime: routed.runtime, defer: policyDenied ? 'privacy_route_denied' : concurrencyFull ? 'concurrency_full' : budgetExceeded ? 'budget_exceeded' : 'no_matching_profile' };
 }
 
 export function parseProgramsYaml(raw: string): { programs: unknown[] } {
@@ -768,6 +940,10 @@ export function listPrograms(opts: OpsStoreOptions = {}): OpsProgram[] {
   return readOpsState(opts.path || opsStorePath()).programs.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
 }
 
+export function listWorkerProfiles(opts: OpsStoreOptions = {}): OpsWorkerProfile[] {
+  return readOpsState(opts.path || opsStorePath()).worker_profiles.sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id));
+}
+
 export function listWorkItems(filter: { state?: WorkItemState }, opts: OpsStoreOptions = {}): OpsWorkItem[] {
   let items = readOpsState(opts.path || opsStorePath()).work_items;
   if (filter.state) items = items.filter(w => w.state === filter.state);
@@ -998,6 +1174,193 @@ export interface OpsDispatchOptions extends OpsStoreOptions {
   failureMessage?: string;
 }
 
+function optionalNonNegativeInteger(v: unknown): number | undefined {
+  if (v === undefined || v === null || v === '') return undefined;
+  const n = Math.floor(Number(v));
+  if (!Number.isFinite(n) || n < 0) return undefined;
+  return n;
+}
+
+function normalizedPrivacyTier(raw: unknown): string {
+  const s = String(raw || '').toUpperCase();
+  if (s.includes('P0')) return 'P0';
+  if (s.includes('P1')) return 'P1';
+  if (s.includes('P2')) return 'P2';
+  if (s.includes('P3')) return 'P3';
+  return s || 'P2';
+}
+
+function isSensitivePrivacy(raw: unknown): boolean {
+  const tier = normalizedPrivacyTier(raw);
+  return tier === 'P0' || tier === 'P1';
+}
+
+function isMiniMaxRoute(provider?: string, model?: string, workerKind?: string): boolean {
+  return [provider, model, workerKind].filter(Boolean).some(v => String(v).toLowerCase().includes('minimax'));
+}
+
+function explicitPublicCloudAllowed(item: OpsWorkItem): boolean {
+  const budget = object(item.budget);
+  const redacted = budget.redacted === true || budget.redacted_input === true || budget.sanitized === true;
+  const budgetAllows = redacted || ((budget.public_cloud_allowed === true || budget.allow_public_cloud === true) && redacted);
+  if (budgetAllows) return true;
+  return array(item.guardrails).some(g => isObject(g)
+    && (g.public_cloud_allowed === true || g.allow_public_cloud === true)
+    && (g.redacted === true || g.redacted_input === true || g.sanitized === true));
+}
+
+function runtimeForWorkerKind(workerKind: string): OpenClawDispatchRuntime | 'supervisor_placeholder' {
+  const kind = workerKind.toLowerCase();
+  if (['acp_codex', 'codex', 'acp', 'claude_code'].includes(kind)) return 'openclaw_acp_codex';
+  if (['subagent', 'native_subagent', 'openclaw_subagent'].includes(kind)) return 'openclaw_subagent';
+  return 'local_script_placeholder';
+}
+
+function routePolicyError(item: OpsWorkItem, provider?: string, model?: string, workerKind?: string, publicCloud?: boolean): string | undefined {
+  const sensitive = isSensitivePrivacy(item.privacy_tier);
+  const publicRoute = publicCloud === true || isMiniMaxRoute(provider, model, workerKind);
+  if (sensitive && publicRoute && !explicitPublicCloudAllowed(item)) {
+    return `${normalizedPrivacyTier(item.privacy_tier)} work cannot route to public cloud/MiniMax without explicit redaction allowance`;
+  }
+  if (isMiniMaxRoute(provider, model, workerKind) && normalizedPrivacyTier(item.privacy_tier) !== 'P3' && !explicitPublicCloudAllowed(item)) {
+    return `MiniMax is restricted to P3 public or explicitly redacted/allowed work`;
+  }
+  return undefined;
+}
+
+function assertRouteAllowedForWork(item: OpsWorkItem, provider?: string, model?: string, workerKind?: string, publicCloud?: boolean): void {
+  const error = routePolicyError(item, provider, model, workerKind, publicCloud);
+  if (error) throw new Error(`route denied for ${item.id}: ${error}`);
+}
+
+export function selectWorkerRoute(item: OpsWorkItem, state: OpsState, opts: { now?: Date; provider?: string; model?: string } = {}): OpsWorkerRouteDecision {
+  if (opts.provider || opts.model) {
+    assertRouteAllowedForWork(item, opts.provider, opts.model, item.worker_kind, isMiniMaxRoute(opts.provider, opts.model, item.worker_kind));
+    return {
+      status: 'legacy',
+      work_item_id: item.id,
+      worker_kind: item.worker_kind,
+      runtime: runtimeForWorkerKind(item.worker_kind),
+      provider: opts.provider || String(item.budget.provider || 'local'),
+      model: opts.model || (typeof item.budget.model === 'string' ? item.budget.model : undefined),
+      reason: 'manual provider/model override passed route guardrails',
+      skipped: [],
+    };
+  }
+
+  const profiles = state.worker_profiles;
+  if (!profiles.length) {
+    const budget = object(item.budget);
+    const provider = typeof budget.provider === 'string' ? budget.provider : legacyProviderForWorkerKind(item.worker_kind);
+    const model = typeof budget.model === 'string' ? budget.model : legacyModelForWorkerKind(item.worker_kind, provider);
+    assertRouteAllowedForWork(item, provider, model, item.worker_kind, isMiniMaxRoute(provider, model, item.worker_kind));
+    return { status: 'legacy', work_item_id: item.id, worker_kind: item.worker_kind, runtime: runtimeForWorkerKind(item.worker_kind), provider, model, reason: 'no synced worker profiles; using legacy worker_kind route', skipped: [] };
+  }
+
+  const scored = profiles.map(profile => ({ profile, score: workerProfileScore(profile, item) }))
+    .filter(row => row.score > 0)
+    .sort((a, b) => b.score - a.score || b.profile.priority - a.profile.priority || a.profile.id.localeCompare(b.profile.id));
+  const skipped: OpsWorkerRouteDecision['skipped'] = [];
+  const held: Array<{ profile: OpsWorkerProfile; budget: NonNullable<OpsWorkerRouteDecision['budget']>; reason: string }> = [];
+
+  for (const { profile } of scored) {
+    const privacy = normalizedPrivacyTier(item.privacy_tier);
+    if (profile.allowed_privacy_tiers.length && !profile.allowed_privacy_tiers.map(normalizedPrivacyTier).includes(privacy)) {
+      skipped.push({ worker_profile_id: profile.id, reason: `privacy tier ${privacy} not allowed` });
+      continue;
+    }
+    const policyError = routePolicyError(item, profile.provider, profile.model, profile.worker_kind, profile.public_cloud);
+    if (policyError) {
+      skipped.push({ worker_profile_id: profile.id, reason: policyError });
+      continue;
+    }
+    const budget = evaluateProfileBudget(profile, state, opts.now || new Date());
+    if (budget.reason) {
+      skipped.push({ worker_profile_id: profile.id, reason: budget.reason });
+      held.push({ profile, budget: budget.budget, reason: budget.reason });
+      continue;
+    }
+    return {
+      status: 'selected',
+      work_item_id: item.id,
+      worker_profile_id: profile.id,
+      worker_kind: profile.worker_kind,
+      runtime: profile.runtime,
+      provider: profile.provider,
+      model: profile.model,
+      reason: `selected ${profile.id} by deterministic worker profile routing`,
+      budget: budget.budget,
+      skipped,
+    };
+  }
+
+  if (held.length) {
+    const best = held[0];
+    return { status: 'held', work_item_id: item.id, worker_profile_id: best.profile.id, worker_kind: best.profile.worker_kind, runtime: best.profile.runtime, provider: best.profile.provider, model: best.profile.model, reason: best.reason, budget: best.budget, skipped };
+  }
+
+  return { status: 'denied', work_item_id: item.id, worker_kind: item.worker_kind, runtime: runtimeForWorkerKind(item.worker_kind), provider: legacyProviderForWorkerKind(item.worker_kind), model: legacyModelForWorkerKind(item.worker_kind, legacyProviderForWorkerKind(item.worker_kind)), reason: skipped.length ? `no worker profile passed route guardrails: ${skipped.map(s => `${s.worker_profile_id}: ${s.reason}`).join('; ')}` : 'no matching worker profile for work item', skipped };
+}
+
+function workerProfileScore(profile: OpsWorkerProfile, item: OpsWorkItem): number {
+  const profileId = profile.id.toLowerCase();
+  const kind = String(item.worker_kind || '').toLowerCase();
+  const lane = String(item.lane || '').toLowerCase();
+  const lanes = [lane, ...stringArray(item.lanes).map(s => s.toLowerCase())];
+  const title = `${item.title} ${item.description}`.toLowerCase();
+  const taskTypes = profile.task_types.map(s => s.toLowerCase());
+  const preferred = profile.preferred_lanes.map(s => s.toLowerCase());
+  let score = 0;
+  if (profile.worker_kind.toLowerCase() === kind || profileId === kind) score += 100;
+  if (preferred.some(l => lanes.includes(l))) score += 50;
+  if (taskTypes.some(t => lanes.includes(t) || title.includes(t.replace(/_/g, ' ')))) score += 30;
+  const isPublicScout = normalizedPrivacyTier(item.privacy_tier) === 'P3' && (lanes.some(l => ['scout', 'public_scout', 'world_scout', 'research'].includes(l)) || title.includes('public scout'));
+  if (isPublicScout && isMiniMaxRoute(profile.provider, profile.model, profile.worker_kind)) score += 120;
+  const isCodePr = lanes.some(l => ['code', 'pr', 'engineering'].includes(l)) || kind.includes('codex') || title.includes(' pr ') || title.includes('pull request');
+  if (isCodePr && (profile.provider.toLowerCase().includes('codex') || profile.worker_kind.toLowerCase().includes('codex') || profileId.includes('codex'))) score += 120;
+  const isPrivateExtraction = isSensitivePrivacy(item.privacy_tier) && (lanes.some(l => ['extraction', 'private_extraction', 'memory_extraction'].includes(l)) || kind.includes('qwen') || title.includes('private extraction'));
+  if (isPrivateExtraction && (profile.provider.toLowerCase().includes('local') || profile.provider.toLowerCase().includes('qwen') || profile.model?.toLowerCase().includes('qwen') || profileId.includes('qwen'))) score += 120;
+  const isReview = lanes.some(l => ['review', 'code_review'].includes(l)) || title.includes('review');
+  if (isReview && (profile.provider.toLowerCase().includes('claude') || profileId.includes('claude'))) score += 80;
+  return score;
+}
+
+function evaluateProfileBudget(profile: OpsWorkerProfile, state: OpsState, now: Date): { reason?: string; budget: NonNullable<OpsWorkerRouteDecision['budget']> } {
+  const day = now.toISOString().slice(0, 10);
+  const activeLeases = state.leases.filter(l => l.lease_status === 'active' && Date.parse(l.expires_at) > now.getTime() && l.metadata?.worker_profile_id === profile.id).length;
+  const activeRuns = state.runs.filter(r => r.worker_profile_id === profile.id && ACTIVE_RUN_STATUSES.has(r.status)).length;
+  const active = Math.max(activeLeases, activeRuns);
+  const profileLedger = state.budget_ledger.filter(e => e.occurred_at.slice(0, 10) === day && e.metadata?.worker_profile_id === profile.id);
+  const providerLedger = state.budget_ledger.filter(e => e.occurred_at.slice(0, 10) === day && e.provider === profile.provider && (profile.model ? e.model === profile.model : true));
+  const dailyTasksUsed = profileLedger.reduce((sum, e) => sum + (e.calls || 0), 0);
+  const dailyCallsUsed = providerLedger.reduce((sum, e) => sum + (e.calls || 0), 0);
+  const budget = { max_concurrency: profile.max_concurrency, active_concurrency: active, daily_task_budget: profile.daily_task_budget, daily_tasks_used: dailyTasksUsed, daily_call_budget: profile.daily_call_budget, daily_calls_used: dailyCallsUsed, day };
+  if (active >= profile.max_concurrency) return { reason: `budget_deferred: ${profile.id} max_concurrency ${profile.max_concurrency} reached`, budget };
+  if (profile.daily_task_budget !== undefined && dailyTasksUsed >= profile.daily_task_budget) return { reason: `budget_deferred: ${profile.id} daily_task_budget ${profile.daily_task_budget} reached`, budget };
+  if (profile.daily_call_budget !== undefined && dailyCallsUsed >= profile.daily_call_budget) return { reason: `budget_deferred: ${profile.provider}${profile.model ? `/${profile.model}` : ''} daily_call_budget ${profile.daily_call_budget} reached`, budget };
+  return { budget };
+}
+
+function legacyProviderForWorkerKind(workerKind: WorkerKind): string {
+  const kind = String(workerKind || '').toLowerCase();
+  if (['acp_codex', 'codex', 'acp'].includes(kind)) return 'codex';
+  if (kind === 'claude_code') return 'claude-code';
+  if (kind.includes('minimax')) return 'minimax';
+  if (kind.includes('qwen')) return 'local-qwen';
+  if (['subagent', 'native_subagent', 'openclaw_subagent'].includes(kind)) return 'openclaw';
+  return 'local';
+}
+
+function legacyModelForWorkerKind(workerKind: WorkerKind, provider: string): string | undefined {
+  const kind = String(workerKind || '').toLowerCase();
+  if (provider === 'codex') return 'openai-codex/default';
+  if (provider === 'claude-code') return 'claude-code/default';
+  if (provider === 'openclaw') return 'native-subagent';
+  if (kind.includes('minimax')) return 'MiniMax-M2.7';
+  if (kind.includes('qwen')) return 'mlx-community/Qwen3.6-35B-A3B-4bit';
+  return undefined;
+}
+
 export interface OpsDispatchResult {
   ok: true;
   path: string;
@@ -1027,8 +1390,8 @@ export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): Ops
   let lease: OpsLease | undefined;
   let run: OpsWorkRun | undefined;
   if (item.state === 'ready') {
-    const initialPlan = openClawRuntimePlan(item, opts);
-    claimed = claimWorkItem(id, opts.workerId || `openclaw-dispatch-${initialPlan.runtime}`, { path, now, leaseMinutes: opts.leaseMinutes || 60, runtime: initialPlan.runtime, runStatus: 'starting' });
+    const initialPlan = openClawRuntimePlan(item, opts, state);
+    claimed = claimWorkItem(id, opts.workerId || initialPlan.worker_profile_id || `openclaw-dispatch-${initialPlan.runtime}`, { path, now, leaseMinutes: opts.leaseMinutes || 60, runtime: initialPlan.runtime, runStatus: 'starting', provider: initialPlan.provider, model: initialPlan.model, workerProfileId: initialPlan.worker_profile_id });
     item = claimed.work_item;
     lease = claimed.lease;
     run = claimed.run;
@@ -1041,7 +1404,7 @@ export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): Ops
   state = readOpsState(path);
   item = state.work_items.find(w => w.id === id) || item;
   run = state.runs.find(r => r.id === run!.id) || run;
-  const plan = openClawRuntimePlan(item, opts);
+  const plan = openClawRuntimePlan(item, opts, state);
   const workPackPath = persistWorkPackMarkdown(path, buildWorkPack(id, { path, now }));
   const packet: OpsDispatchPacket = {
     schema: OPS_DISPATCH_PACKET_SCHEMA,
@@ -1052,6 +1415,7 @@ export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): Ops
     work_item_id: id,
     run_id: run.id,
     lease_id: lease?.id,
+    worker_profile_id: plan.worker_profile_id,
     worker_kind: item.worker_kind,
     runtime: plan.runtime,
     provider: plan.provider,
@@ -1097,16 +1461,23 @@ export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): Ops
   return { ok: true, path, work_item: item, lease, run: updatedRun, dispatch_packet: packet, packet_path: packetPath, work_pack_path: workPackPath, artifact };
 }
 
-function openClawRuntimePlan(item: OpsWorkItem, opts: OpsDispatchOptions): { runtime: OpenClawDispatchRuntime; provider: string; model?: string; command_payload: Record<string, unknown> } {
-  const kind = String(item.worker_kind || '').toLowerCase();
+function openClawRuntimePlan(item: OpsWorkItem, opts: OpsDispatchOptions, state?: OpsState): { runtime: OpenClawDispatchRuntime; provider: string; model?: string; worker_profile_id?: string; command_payload: Record<string, unknown> } {
+  const route = state ? selectWorkerRoute(item, state, { now: opts.now, provider: opts.provider, model: opts.model }) : undefined;
+  if (route?.status === 'held') throw new Error(`route held for ${item.id}: ${route.reason}`);
+  if (route?.status === 'denied') throw new Error(`route denied for ${item.id}: ${route.reason}`);
+  const routedKind = route?.worker_kind || item.worker_kind;
+  const kind = String(routedKind || '').toLowerCase();
   const budget = object(item.budget);
-  const model = opts.model || (typeof budget.model === 'string' ? budget.model : undefined);
+  const model = route?.model || opts.model || (typeof budget.model === 'string' ? budget.model : undefined);
+  const providerOverride = route?.provider || opts.provider;
+  assertRouteAllowedForWork(item, providerOverride, model, routedKind, route?.status === 'selected' ? state?.worker_profiles.find(p => p.id === route.worker_profile_id)?.public_cloud : undefined);
   if (['subagent', 'native_subagent', 'openclaw_subagent'].includes(kind)) {
-    const provider = opts.provider || 'openclaw';
+    const provider = providerOverride || 'openclaw';
     return {
       runtime: 'openclaw_subagent',
       provider,
       model: model || 'native-subagent',
+      worker_profile_id: route?.worker_profile_id,
       command_payload: {
         tool: 'sessions_spawn',
         mode: opts.dryRun === false && opts.allowLive === true ? 'live_opt_in' : 'dry_run',
@@ -1117,11 +1488,12 @@ function openClawRuntimePlan(item: OpsWorkItem, opts: OpsDispatchOptions): { run
     };
   }
   if (['acp_codex', 'codex', 'acp', 'claude_code'].includes(kind)) {
-    const provider = opts.provider || (kind === 'claude_code' ? 'claude-code' : 'codex');
+    const provider = providerOverride || (kind === 'claude_code' ? 'claude-code' : 'codex');
     return {
       runtime: 'openclaw_acp_codex',
       provider,
       model: model || (provider === 'claude-code' ? 'claude-code/default' : 'openai-codex/default'),
+      worker_profile_id: route?.worker_profile_id,
       command_payload: {
         tool: 'acp_session',
         mode: opts.dryRun === false && opts.allowLive === true ? 'live_opt_in' : 'dry_run',
@@ -1131,11 +1503,12 @@ function openClawRuntimePlan(item: OpsWorkItem, opts: OpsDispatchOptions): { run
       },
     };
   }
-  const provider = opts.provider || (typeof budget.provider === 'string' ? budget.provider : 'local');
+  const provider = providerOverride || (typeof budget.provider === 'string' ? budget.provider : 'local');
   return {
     runtime: 'local_script_placeholder',
     provider,
     model,
+    worker_profile_id: route?.worker_profile_id,
     command_payload: {
       tool: 'local_script_placeholder',
       mode: 'dry_run',
@@ -1193,7 +1566,7 @@ function shellQuote(v: string): string {
   return `'${v.replace(/'/g, `'"'"'`)}'`;
 }
 
-export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number; runtime?: string; runStatus?: RunStatus } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
+export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOptions & { leaseMinutes?: number; runtime?: string; runStatus?: RunStatus; provider?: string; model?: string; workerProfileId?: string } = {}): { ok: true; work_item: OpsWorkItem; lease: OpsLease; run: OpsWorkRun } {
   const path = opts.path || opsStorePath();
   initOpsStore(path, opts.now);
   const state = readOpsState(path);
@@ -1209,7 +1582,10 @@ export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOption
     id: uuid('run'),
     work_item_id: id,
     program_id: item.program_id,
+    worker_profile_id: opts.workerProfileId,
     worker_id: workerId,
+    provider: opts.provider,
+    model: opts.model,
     runtime: opts.runtime || item.worker_kind,
     status: opts.runStatus || 'running',
     started_at: at,
@@ -1225,12 +1601,27 @@ export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOption
     claimed_at: at,
     expires_at: expires.toISOString(),
     heartbeat_at: at,
-    metadata: {},
+    metadata: opts.workerProfileId ? { worker_profile_id: opts.workerProfileId, provider: opts.provider, model: opts.model } : {},
   };
   const updated: OpsWorkItem = { ...item, state: 'running', updated_at: at, last_state_reason: `claimed by ${workerId}` };
   appendEvent(path, 'run_upsert', run, opts.now);
   appendEvent(path, 'lease_upsert', lease, opts.now);
   appendEvent(path, 'work_upsert', updated, opts.now);
+  if (opts.provider || opts.workerProfileId) {
+    const latest = readOpsState(path);
+    const ledger: OpsBudgetLedgerEntry = {
+      id: nextNumericId(latest.budget_ledger),
+      provider: opts.provider || 'unknown',
+      model: opts.model,
+      program_id: item.program_id,
+      work_item_id: id,
+      run_id: run.id,
+      calls: 1,
+      occurred_at: at,
+      metadata: { kind: 'task_reservation', worker_profile_id: opts.workerProfileId, worker_id: workerId },
+    };
+    appendEvent(path, 'budget_ledger', ledger, opts.now);
+  }
   return { ok: true, work_item: updated, lease, run };
 }
 
@@ -1611,12 +2002,28 @@ export function superviseOps(opts: OpsSuperviseOptions = {}): OpsSuperviseResult
     decisions.push({ action: 'claim_skipped', reason: availableSlots <= 0 ? 'capacity_full' : 'max_claims_zero', max_running: maxRunning, running_count: runningCount });
   } else {
     const candidates = readyClaimCandidates(state, now);
-    for (const item of candidates.slice(0, claimLimit)) {
-      const result = claimWorkItem(item.id, workerId, { path, now, leaseMinutes: opts.leaseMinutes || 30, runtime: 'supervisor_placeholder', runStatus: 'running' });
+    for (const item of candidates) {
+      if (claimed.length >= claimLimit) break;
+      const routeState = state.worker_profiles.length ? state : { ...state, worker_profiles: defaultWorkerProfiles() };
+      const route = selectWorkerRoute(item, routeState, { now });
+      if (route.status === 'held') {
+        decisions.push({ action: 'defer_work_item', work_item_id: item.id, worker_profile_id: route.worker_profile_id, reason: route.reason, defer: /concurrency/i.test(route.reason) ? 'concurrency_full' : 'budget_exceeded', budget: route.budget });
+        continue;
+      }
+      if (route.status === 'denied') {
+        const denied: OpsWorkItem = { ...item, state: 'blocked', updated_at: at, last_state_reason: `route_denied: ${route.reason}` };
+        appendEvent(path, 'work_upsert', denied, now);
+        decisions.push({ action: 'route_denied_work_item', work_item_id: item.id, reason: route.reason, skipped: route.skipped });
+        state = readOpsState(path);
+        continue;
+      }
+      const result = claimWorkItem(item.id, opts.workerId || route.worker_profile_id || workerId, { path, now, leaseMinutes: opts.leaseMinutes || 30, runtime: route.runtime, runStatus: 'running', provider: route.provider, model: route.model, workerProfileId: route.worker_profile_id });
       claimed.push(result);
-      decisions.push({ action: 'claim_work_item', work_item_id: item.id, lease_id: result.lease.id, run_id: result.run.id, runtime: result.run.runtime });
+      decisions.push({ action: 'claim_work_item', work_item_id: item.id, lease_id: result.lease.id, run_id: result.run.id, runtime: result.run.runtime, provider: route.provider, model: route.model, worker_profile_id: route.worker_profile_id, route_reason: route.reason });
+      state = readOpsState(path);
     }
     if (candidates.length === 0) decisions.push({ action: 'claim_skipped', reason: 'no_ready_claim_candidates' });
+    else if (claimed.length === 0) decisions.push({ action: 'claim_skipped', reason: 'all_ready_candidates_deferred' });
   }
 
   state = readOpsState(path);
