@@ -1,0 +1,2049 @@
+{
+  "schema": "gbrain.workflow_eval_suite.v1",
+  "description": "Deterministic fixture-backed workflow eval suite for PR26. Holdout prompt bodies remain fixture-level and are not implementation training examples.",
+  "cases": [
+    {
+      "id": "autobiographical-recall-01",
+      "meta": {
+        "id": "autobiographical-recall-01",
+        "class": "autobiographical_recall",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate autobiographical recall workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for autobiographical_recall case 1.",
+        "evidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "autobiographical",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "autobiographical-recall-02",
+      "meta": {
+        "id": "autobiographical-recall-02",
+        "class": "autobiographical_recall",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate autobiographical recall workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for autobiographical_recall case 2.",
+        "evidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:2:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:2:L1-L3"
+        ],
+        "requiredTerms": [
+          "autobiographical",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "autobiographical-recall-03",
+      "meta": {
+        "id": "autobiographical-recall-03",
+        "class": "autobiographical_recall",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate autobiographical recall workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for autobiographical_recall case 3.",
+        "evidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:3:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:3:L1-L3"
+        ],
+        "requiredTerms": [
+          "autobiographical",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "autobiographical-recall-04",
+      "meta": {
+        "id": "autobiographical-recall-04",
+        "class": "autobiographical_recall",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate autobiographical recall workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for autobiographical_recall case 4.",
+        "evidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:4:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:4:L1-L3"
+        ],
+        "requiredTerms": [
+          "autobiographical",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "autobiographical-recall-05",
+      "meta": {
+        "id": "autobiographical-recall-05",
+        "class": "autobiographical_recall",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate autobiographical recall workflow fixture 5.",
+      "fixture": {
+        "summary": "Deterministic fixture for autobiographical_recall case 5.",
+        "evidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:5:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:autobiographical_recall:5:L1-L3"
+        ],
+        "requiredTerms": [
+          "autobiographical",
+          "5"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "project-lineage-01",
+      "meta": {
+        "id": "project-lineage-01",
+        "class": "project_lineage",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "project_pack",
+        "split": "visible"
+      },
+      "prompt": "Evaluate project lineage workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for project_lineage case 1.",
+        "evidenceRefs": [
+          "fixture:project_lineage:1:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:project_lineage:1:evidence"
+        ],
+        "requiredTerms": [
+          "project",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "project-lineage-02",
+      "meta": {
+        "id": "project-lineage-02",
+        "class": "project_lineage",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "project_pack",
+        "split": "visible"
+      },
+      "prompt": "Evaluate project lineage workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for project_lineage case 2.",
+        "evidenceRefs": [
+          "fixture:project_lineage:2:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:project_lineage:2:evidence"
+        ],
+        "requiredTerms": [
+          "project",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "project-lineage-03",
+      "meta": {
+        "id": "project-lineage-03",
+        "class": "project_lineage",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "project_pack",
+        "split": "visible"
+      },
+      "prompt": "Evaluate project lineage workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for project_lineage case 3.",
+        "evidenceRefs": [
+          "fixture:project_lineage:3:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:project_lineage:3:evidence"
+        ],
+        "requiredTerms": [
+          "project",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "project-lineage-04",
+      "meta": {
+        "id": "project-lineage-04",
+        "class": "project_lineage",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "project_pack",
+        "split": "visible"
+      },
+      "prompt": "Evaluate project lineage workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for project_lineage case 4.",
+        "evidenceRefs": [
+          "fixture:project_lineage:4:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:project_lineage:4:evidence"
+        ],
+        "requiredTerms": [
+          "project",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "project-lineage-05",
+      "meta": {
+        "id": "project-lineage-05",
+        "class": "project_lineage",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "project_pack",
+        "split": "visible"
+      },
+      "prompt": "Evaluate project lineage workflow fixture 5.",
+      "fixture": {
+        "summary": "Deterministic fixture for project_lineage case 5.",
+        "evidenceRefs": [
+          "fixture:project_lineage:5:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:project_lineage:5:evidence"
+        ],
+        "requiredTerms": [
+          "project",
+          "5"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "relationship-network-01",
+      "meta": {
+        "id": "relationship-network-01",
+        "class": "relationship_network",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate relationship network workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for relationship_network case 1.",
+        "evidenceRefs": [
+          "gbs1:fixture:relationship_network:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:relationship_network:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "relationship",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "relationship-network-02",
+      "meta": {
+        "id": "relationship-network-02",
+        "class": "relationship_network",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate relationship network workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for relationship_network case 2.",
+        "evidenceRefs": [
+          "gbs1:fixture:relationship_network:2:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:relationship_network:2:L1-L3"
+        ],
+        "requiredTerms": [
+          "relationship",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "relationship-network-03",
+      "meta": {
+        "id": "relationship-network-03",
+        "class": "relationship_network",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate relationship network workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for relationship_network case 3.",
+        "evidenceRefs": [
+          "gbs1:fixture:relationship_network:3:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:relationship_network:3:L1-L3"
+        ],
+        "requiredTerms": [
+          "relationship",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "relationship-network-04",
+      "meta": {
+        "id": "relationship-network-04",
+        "class": "relationship_network",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate relationship network workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for relationship_network case 4.",
+        "evidenceRefs": [
+          "gbs1:fixture:relationship_network:4:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:relationship_network:4:L1-L3"
+        ],
+        "requiredTerms": [
+          "relationship",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "health-family-01",
+      "meta": {
+        "id": "health-family-01",
+        "class": "health_family",
+        "namespace": "personal",
+        "privacyTier": "P0_LOCAL_ONLY",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate health family workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for health_family case 1.",
+        "evidenceRefs": [
+          "gbs1:fixture:health_family:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:health_family:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "health",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "health-family-02",
+      "meta": {
+        "id": "health-family-02",
+        "class": "health_family",
+        "namespace": "personal",
+        "privacyTier": "P0_LOCAL_ONLY",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate health family workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for health_family case 2.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "health-family-03",
+      "meta": {
+        "id": "health-family-03",
+        "class": "health_family",
+        "namespace": "personal",
+        "privacyTier": "P0_LOCAL_ONLY",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate health family workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for health_family case 3.",
+        "evidenceRefs": [
+          "gbs1:fixture:health_family:3:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:health_family:3:L1-L3"
+        ],
+        "requiredTerms": [
+          "health",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "health-family-04",
+      "meta": {
+        "id": "health-family-04",
+        "class": "health_family",
+        "namespace": "personal",
+        "privacyTier": "P0_LOCAL_ONLY",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate health family workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for health_family case 4.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "preference-identity-01",
+      "meta": {
+        "id": "preference-identity-01",
+        "class": "preference_identity",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate preference identity workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for preference_identity case 1.",
+        "evidenceRefs": [
+          "gbs1:fixture:preference_identity:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:preference_identity:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "preference",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "preference-identity-02",
+      "meta": {
+        "id": "preference-identity-02",
+        "class": "preference_identity",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate preference identity workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for preference_identity case 2.",
+        "evidenceRefs": [
+          "gbs1:fixture:preference_identity:2:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "gbs1:fixture:preference_identity:2:L1-L3"
+        ],
+        "requiredTerms": [
+          "preference",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "preference-identity-03",
+      "meta": {
+        "id": "preference-identity-03",
+        "class": "preference_identity",
+        "namespace": "personal",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "visible"
+      },
+      "prompt": "Evaluate preference identity workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for preference_identity case 3.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [
+          "preference",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "world-intelligence-01",
+      "meta": {
+        "id": "world-intelligence-01",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 1.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "world-intelligence-02",
+      "meta": {
+        "id": "world-intelligence-02",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 2.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:2:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:2:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "world-intelligence-03",
+      "meta": {
+        "id": "world-intelligence-03",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 3.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:3:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:3:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "world-intelligence-04",
+      "meta": {
+        "id": "world-intelligence-04",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 4.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:4:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:4:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "world-intelligence-05",
+      "meta": {
+        "id": "world-intelligence-05",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 5.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 5.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:5:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:5:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "5"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "world-intelligence-06",
+      "meta": {
+        "id": "world-intelligence-06",
+        "class": "world_intelligence",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "scout",
+        "split": "visible"
+      },
+      "prompt": "Evaluate world intelligence workflow fixture 6.",
+      "fixture": {
+        "summary": "Deterministic fixture for world_intelligence case 6.",
+        "evidenceRefs": [
+          "srcspan1:public:world_intelligence:6:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:world_intelligence:6:L1-L3"
+        ],
+        "requiredTerms": [
+          "world",
+          "6"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "topic-state-01",
+      "meta": {
+        "id": "topic-state-01",
+        "class": "topic_state",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "topic_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate topic state workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for topic_state case 1.",
+        "evidenceRefs": [
+          "srcspan1:public:topic_state:1:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:topic_state:1:L1-L3"
+        ],
+        "requiredTerms": [
+          "topic",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "topic-state-02",
+      "meta": {
+        "id": "topic-state-02",
+        "class": "topic_state",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "topic_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate topic state workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for topic_state case 2.",
+        "evidenceRefs": [
+          "srcspan1:public:topic_state:2:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:topic_state:2:L1-L3"
+        ],
+        "requiredTerms": [
+          "topic",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "topic-state-03",
+      "meta": {
+        "id": "topic-state-03",
+        "class": "topic_state",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "topic_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate topic state workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for topic_state case 3.",
+        "evidenceRefs": [
+          "srcspan1:public:topic_state:3:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:topic_state:3:L1-L3"
+        ],
+        "requiredTerms": [
+          "topic",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "topic-state-04",
+      "meta": {
+        "id": "topic-state-04",
+        "class": "topic_state",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "topic_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate topic state workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for topic_state case 4.",
+        "evidenceRefs": [
+          "srcspan1:public:topic_state:4:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:topic_state:4:L1-L3"
+        ],
+        "requiredTerms": [
+          "topic",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "topic-state-05",
+      "meta": {
+        "id": "topic-state-05",
+        "class": "topic_state",
+        "namespace": "world",
+        "privacyTier": "P3_PUBLIC",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "topic_brief",
+        "split": "visible"
+      },
+      "prompt": "Evaluate topic state workflow fixture 5.",
+      "fixture": {
+        "summary": "Deterministic fixture for topic_state case 5.",
+        "evidenceRefs": [
+          "srcspan1:public:topic_state:5:L1-L3"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "cloud",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "srcspan1:public:topic_state:5:L1-L3"
+        ],
+        "requiredTerms": [
+          "topic",
+          "5"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "opportunity-radar-01",
+      "meta": {
+        "id": "opportunity-radar-01",
+        "class": "opportunity_radar",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "radar",
+        "split": "visible"
+      },
+      "prompt": "Evaluate opportunity radar workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for opportunity_radar case 1.",
+        "evidenceRefs": [
+          "fixture:opportunity_radar:1:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:opportunity_radar:1:evidence"
+        ],
+        "requiredTerms": [
+          "opportunity",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "opportunity-radar-02",
+      "meta": {
+        "id": "opportunity-radar-02",
+        "class": "opportunity_radar",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "radar",
+        "split": "visible"
+      },
+      "prompt": "Evaluate opportunity radar workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for opportunity_radar case 2.",
+        "evidenceRefs": [
+          "fixture:opportunity_radar:2:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:opportunity_radar:2:evidence"
+        ],
+        "requiredTerms": [
+          "opportunity",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "opportunity-radar-03",
+      "meta": {
+        "id": "opportunity-radar-03",
+        "class": "opportunity_radar",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "radar",
+        "split": "visible"
+      },
+      "prompt": "Evaluate opportunity radar workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for opportunity_radar case 3.",
+        "evidenceRefs": [
+          "fixture:opportunity_radar:3:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:opportunity_radar:3:evidence"
+        ],
+        "requiredTerms": [
+          "opportunity",
+          "3"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-opportunity-radar-04",
+      "meta": {
+        "id": "holdout-opportunity-radar-04",
+        "class": "opportunity_radar",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "radar",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate opportunity radar workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for opportunity_radar case 4.",
+        "evidenceRefs": [
+          "fixture:opportunity_radar:4:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:opportunity_radar:4:evidence"
+        ],
+        "requiredTerms": [
+          "opportunity",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-opportunity-radar-05",
+      "meta": {
+        "id": "holdout-opportunity-radar-05",
+        "class": "opportunity_radar",
+        "namespace": "project",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "radar",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate opportunity radar workflow fixture 5.",
+      "fixture": {
+        "summary": "Deterministic fixture for opportunity_radar case 5.",
+        "evidenceRefs": [
+          "fixture:opportunity_radar:5:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:opportunity_radar:5:evidence"
+        ],
+        "requiredTerms": [
+          "opportunity",
+          "5"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-meeting-brief-01",
+      "meta": {
+        "id": "holdout-meeting-brief-01",
+        "class": "meeting_brief",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate meeting brief workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for meeting_brief case 1.",
+        "evidenceRefs": [
+          "fixture:meeting_brief:1:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:meeting_brief:1:evidence"
+        ],
+        "requiredTerms": [
+          "meeting",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-meeting-brief-02",
+      "meta": {
+        "id": "holdout-meeting-brief-02",
+        "class": "meeting_brief",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate meeting brief workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for meeting_brief case 2.",
+        "evidenceRefs": [
+          "fixture:meeting_brief:2:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:meeting_brief:2:evidence"
+        ],
+        "requiredTerms": [
+          "meeting",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-meeting-brief-03",
+      "meta": {
+        "id": "holdout-meeting-brief-03",
+        "class": "meeting_brief",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": true,
+        "workflowType": "meeting_brief",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate meeting brief workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for meeting_brief case 3.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "holdout-meeting-brief-04",
+      "meta": {
+        "id": "holdout-meeting-brief-04",
+        "class": "meeting_brief",
+        "namespace": "network",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "meeting_brief",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate meeting brief workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for meeting_brief case 4.",
+        "evidenceRefs": [
+          "fixture:meeting_brief:4:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:meeting_brief:4:evidence"
+        ],
+        "requiredTerms": [
+          "meeting",
+          "4"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-agent-handoff-01",
+      "meta": {
+        "id": "holdout-agent-handoff-01",
+        "class": "agent_handoff",
+        "namespace": "operational",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "agent_handoff",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate agent handoff workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for agent_handoff case 1.",
+        "evidenceRefs": [
+          "fixture:agent_handoff:1:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:agent_handoff:1:evidence"
+        ],
+        "requiredTerms": [
+          "agent",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-agent-handoff-02",
+      "meta": {
+        "id": "holdout-agent-handoff-02",
+        "class": "agent_handoff",
+        "namespace": "operational",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": false,
+        "requiresAbstention": false,
+        "workflowType": "agent_handoff",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate agent handoff workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for agent_handoff case 2.",
+        "evidenceRefs": [
+          "fixture:agent_handoff:2:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:agent_handoff:2:evidence"
+        ],
+        "requiredTerms": [
+          "agent",
+          "2"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "holdout-agent-handoff-03",
+      "meta": {
+        "id": "holdout-agent-handoff-03",
+        "class": "agent_handoff",
+        "namespace": "operational",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": true,
+        "workflowType": "agent_handoff",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate agent handoff workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for agent_handoff case 3.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "holdout-negative-abstention-01",
+      "meta": {
+        "id": "holdout-negative-abstention-01",
+        "class": "negative_abstention",
+        "namespace": "synthetic",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": false,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "holdout"
+      },
+      "prompt": "Evaluate negative abstention workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for negative_abstention case 1.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        }
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "mutation-negative-abstention-02",
+      "meta": {
+        "id": "mutation-negative-abstention-02",
+        "class": "negative_abstention",
+        "namespace": "synthetic",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "mutation",
+        "mutationOf": "visible-negative-abstention-02"
+      },
+      "prompt": "Evaluate negative abstention workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for negative_abstention case 2.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        },
+        "mutation": "swapped-name-project-or-date lure; expected outcome is abstain or exact cited answer only"
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "mutation-negative-abstention-03",
+      "meta": {
+        "id": "mutation-negative-abstention-03",
+        "class": "negative_abstention",
+        "namespace": "synthetic",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "mutation",
+        "mutationOf": "visible-negative-abstention-03"
+      },
+      "prompt": "Evaluate negative abstention workflow fixture 3.",
+      "fixture": {
+        "summary": "Deterministic fixture for negative_abstention case 3.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        },
+        "mutation": "swapped-name-project-or-date lure; expected outcome is abstain or exact cited answer only"
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "mutation-negative-abstention-04",
+      "meta": {
+        "id": "mutation-negative-abstention-04",
+        "class": "negative_abstention",
+        "namespace": "synthetic",
+        "privacyTier": "P1_PRIVATE",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "recall",
+        "split": "mutation",
+        "mutationOf": "visible-negative-abstention-04"
+      },
+      "prompt": "Evaluate negative abstention workflow fixture 4.",
+      "fixture": {
+        "summary": "Deterministic fixture for negative_abstention case 4.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        },
+        "mutation": "swapped-name-project-or-date lure; expected outcome is abstain or exact cited answer only"
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    },
+    {
+      "id": "mutation-governance-01",
+      "meta": {
+        "id": "mutation-governance-01",
+        "class": "governance",
+        "namespace": "operational",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": false,
+        "workflowType": "governance",
+        "split": "mutation",
+        "mutationOf": "visible-governance-01"
+      },
+      "prompt": "Evaluate governance workflow fixture 1.",
+      "fixture": {
+        "summary": "Deterministic fixture for governance case 1.",
+        "evidenceRefs": [
+          "fixture:governance:1:evidence"
+        ],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        },
+        "mutation": "swapped-name-project-or-date lure; expected outcome is abstain or exact cited answer only"
+      },
+      "expected": {
+        "abstain": false,
+        "requiredEvidenceRefs": [
+          "fixture:governance:1:evidence"
+        ],
+        "requiredTerms": [
+          "governance",
+          "1"
+        ],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": true,
+        "privacyFailClosed": false
+      }
+    },
+    {
+      "id": "mutation-governance-02",
+      "meta": {
+        "id": "mutation-governance-02",
+        "class": "governance",
+        "namespace": "operational",
+        "privacyTier": "P2_LIMITED_CLOUD",
+        "visibleToImplementation": true,
+        "requiresAbstention": true,
+        "workflowType": "governance",
+        "split": "mutation",
+        "mutationOf": "visible-governance-02"
+      },
+      "prompt": "Evaluate governance workflow fixture 2.",
+      "fixture": {
+        "summary": "Deterministic fixture for governance case 2.",
+        "evidenceRefs": [],
+        "observedAt": "2026-04-30T00:00:00.000Z",
+        "route": {
+          "providerKind": "local",
+          "rawPrivateContext": false
+        },
+        "mutation": "swapped-name-project-or-date lure; expected outcome is abstain or exact cited answer only"
+      },
+      "expected": {
+        "abstain": true,
+        "requiredEvidenceRefs": [],
+        "requiredTerms": [],
+        "forbiddenTerms": [
+          "invented",
+          "uncited",
+          "generic contamination"
+        ],
+        "cloudAllowed": false,
+        "privacyFailClosed": true
+      }
+    }
+  ]
+}
