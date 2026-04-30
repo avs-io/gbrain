@@ -38,6 +38,7 @@ import {
 } from '../core/ops/liveness.ts';
 import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
+import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -64,6 +65,9 @@ gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
 gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
 gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--archive <decisions.jsonl>] [--out <report.json>]
 gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
+gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
+gbrain ops opportunities brief-ready --json [--store <path>] [--limit 5] [--out <surface.json>]
+gbrain ops opportunities feedback <candidate-id> --useful|--not-useful [--reason <text>] --json [--store <path>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -234,6 +238,41 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     if (hasFlag(actionArgs, '--json') || out) printJson(report);
     else console.log(`commitments=${report.commitments.length}\tfollow_ups=${report.follow_ups.length}\treminders=${report.reminders.length}\tmemory_proposals=${report.memory_proposals.length}\twork_items=${report.created_work_items.length}`);
     return;
+  }
+
+  if (sub === 'opportunities' || sub === 'opportunity-radar') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action === 'radar' || action === 'run') {
+      const input = flagValue(actionArgs, '--input');
+      if (!input) throw new Error('gbrain ops opportunities radar requires --input <signals.json>');
+      const parsed = readOpportunityRadarInputFile(input);
+      const report = runOpportunityRadar({ ...parsed, storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : parsed.topN });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeOpportunityReport(out, report);
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`opportunities=${report.candidate_count}\tbrief_ready=${report.brief_ready.top_candidates.length}\tfalse_positives=${report.brief_ready.false_positive_count}`);
+      return;
+    }
+    if (action === 'brief-ready' || action === 'brief') {
+      const surface = buildOpportunityBriefReadySurface({ storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : undefined });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeOpportunityReport(out, surface);
+      if (hasFlag(actionArgs, '--json') || out) printJson(surface);
+      else for (const c of surface.top_candidates) console.log(`${c.id}\t${c.scores.final}\t${c.title}`);
+      return;
+    }
+    if (action === 'feedback') {
+      const candidateId = actionArgs.find(a => !a.startsWith('--'));
+      if (!candidateId) throw new Error('gbrain ops opportunities feedback requires <candidate-id>');
+      const value = hasFlag(actionArgs, '--useful') ? 'useful' : hasFlag(actionArgs, '--not-useful') ? 'not_useful' : undefined;
+      if (!value) throw new Error('gbrain ops opportunities feedback requires --useful or --not-useful');
+      const feedback = recordOpportunityFeedback({ candidateId, value, reason: flagValue(actionArgs, '--reason'), storePath: storePath(actionArgs) });
+      if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.opportunity_feedback.result.v1', feedback });
+      else console.log(`${feedback.candidate_id}\t${feedback.value}\tfalse_positive=${feedback.false_positive}`);
+      return;
+    }
+    throw new Error('gbrain ops opportunities supports: radar, brief-ready, feedback');
   }
 
   if (sub === 'dashboard') {
