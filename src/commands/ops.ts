@@ -36,6 +36,7 @@ import {
   heartbeatCheck,
   heartbeatTemplateMarkdown,
 } from '../core/ops/liveness.ts';
+import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -60,6 +61,7 @@ gbrain ops workers sync --file <worker_profiles.yaml> --json [--store <path>]
 gbrain ops topic-tracks list --json [--store <path>]
 gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
 gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
+gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--archive <decisions.jsonl>] [--out <report.json>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
@@ -186,6 +188,29 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
     if (hasFlag(actionArgs, '--json') || out) printJson(report);
     else console.log(`${report.topic_track_id}\tsources=${report.scout_report.source_items.length}\tclaims=${report.extraction.claims.length}\tdeltas=${report.recent_deltas.new.length + report.recent_deltas.changed.length + report.recent_deltas.repeated.length}\tsurfacing=${report.surfacing_candidates.length}`);
+    return;
+  }
+
+  if (sub === 'bookmarks') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action !== 'radar') throw new Error('gbrain ops bookmarks supports: radar');
+    const input = flagValue(actionArgs, '--input');
+    if (!input) throw new Error('gbrain ops bookmarks radar requires --input <bookmarks.json|bookmarks.md>');
+    const bookmarks = readBookmarkBatchFile(input);
+    const minScore = flagValue(actionArgs, '--surface-min-score');
+    const interruptScore = flagValue(actionArgs, '--interrupt-min-score');
+    const report = runBookmarkActionRadar({
+      bookmarks,
+      storePath: storePath(actionArgs),
+      archivePath: flagValue(actionArgs, '--archive'),
+      surfaceMinScore: minScore ? Number(minScore) : undefined,
+      interruptMinScore: interruptScore ? Number(interruptScore) : undefined,
+    });
+    const out = flagValue(actionArgs, '--out');
+    if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+    if (hasFlag(actionArgs, '--json') || out) printJson(report);
+    else console.log(`bookmarks=${report.deduped_count}\twork_items=${report.created_work_items.length}\tarchived=${report.archived_decisions.length}\tsurfaced=${report.surfaced_candidates.length}`);
     return;
   }
 
