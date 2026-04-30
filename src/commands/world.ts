@@ -1,6 +1,13 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 
 import { extractWorldCandidatesFromScout, validateWorldExtractionReport } from '../core/world/extractor.ts';
+import {
+  appendSynthesisSurface,
+  compileTopicState,
+  readClaimLedgerFile,
+  readWorldExtractionFile,
+  validateTopicStateSurface,
+} from '../core/world/topic-state.ts';
 import type { ScoutRunReport } from '../core/scout/runner.ts';
 
 function parseArgs(args: string[]): Record<string, string | boolean | undefined> {
@@ -42,7 +49,35 @@ export async function runWorldCommand(_engine: unknown, args: string[]): Promise
   const [sub, ...rest] = args;
   const flags = parseArgs(rest);
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log('gbrain world extract <topic> --from-run <scout-report.json> --json [--out <world-extraction.json>]');
+    console.log('gbrain world extract <topic> --from-run <scout-report.json> --json [--out <world-extraction.json>]\ngbrain world topic state <slug> --from-extraction <world-extraction.json> [--from-claims <claim-ledger.jsonl>] [--since <iso>] [--json] [--out <topic-state.json>] [--no-store]');
+    return;
+  }
+
+  if (sub === 'topic') {
+    const action = typeof flags._pos1 === 'string' ? flags._pos1 : undefined;
+    const topic = typeof flags._pos2 === 'string' ? flags._pos2 : undefined;
+    if (action !== 'state' && action !== 'compile') throw new Error('world topic requires state (or compile)');
+    if (!topic) throw new Error('world topic state requires <slug>');
+    const fromExtraction = typeof flags.from_extraction === 'string' ? flags.from_extraction : typeof flags.from_world_extraction === 'string' ? flags.from_world_extraction : undefined;
+    if (!fromExtraction) throw new Error('world topic state requires --from-extraction <world-extraction.json>');
+    const fromClaims = typeof flags.from_claims === 'string' ? flags.from_claims : undefined;
+    const activeProjects = typeof flags.active_projects === 'string' ? flags.active_projects.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+    const surface = compileTopicState({
+      topic,
+      extractions: readWorldExtractionFile(fromExtraction),
+      claims: fromClaims ? readClaimLedgerFile(fromClaims) : [],
+      since: typeof flags.since === 'string' ? flags.since : undefined,
+      staleAfterDays: typeof flags.stale_days === 'string' ? Number(flags.stale_days) : undefined,
+      activeProjects,
+    });
+    const errors = validateTopicStateSurface(surface);
+    const out = typeof flags.out === 'string' ? flags.out : undefined;
+    if (out) writeFileSync(out, JSON.stringify(surface, null, 2) + '\n');
+    let stored_at: string | undefined;
+    if (!flags.no_store && !flags.dry_run) stored_at = appendSynthesisSurface(surface);
+    const payload = { ok: errors.length === 0, errors, stored_at, surface };
+    console.log(flags.json || out ? JSON.stringify(payload, null, 2) : `${surface.topic}\tstate\tclaims=${surface.current_state.length}\tdeltas=${surface.recent_deltas.new.length + surface.recent_deltas.changed.length + surface.recent_deltas.repeated.length}\tstale=${surface.diagnostics.stale_claims}`);
+    if (errors.length) process.exitCode = 1;
     return;
   }
 
