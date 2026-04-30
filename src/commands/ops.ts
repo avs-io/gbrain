@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import {
   WORK_ITEM_STATES,
   auditOps,
+  buildOpsMetrics,
   buildOpsDashboard,
   buildWorkPack,
   claimWorkItem,
@@ -17,11 +18,14 @@ import {
   roadmapStatus,
   reconcileOpenClawTasks,
   opsStorePath,
+  pauseOpsProgram,
+  resumeOpsProgram,
   parseWorkerProfilesYaml,
   readOpsState,
   renderWorkPackMarkdown,
   renderOpsDashboardMarkdown,
   selectWorkerRoute,
+  setOpsKillSwitch,
   superviseOps,
   syncTopicTracksFromYamlFile,
   syncProgramsFromYamlFile,
@@ -80,7 +84,11 @@ gbrain ops opportunities feedback <candidate-id> --useful|--not-useful [--reason
 gbrain ops brief morning --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 5] [--out <surface.json>]
 gbrain ops brief daily-build --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 12] [--out <surface.json>]
 gbrain ops brief weekly-strategy --json|--markdown [--store <path>] [--opportunities-store <path>] [--limit 8] [--out <surface.json>]
+gbrain ops pause --program <id> [--reason <text>] [--json] [--store <path>]
+gbrain ops resume --program <id> [--reason <text>] [--json] [--store <path>]
+gbrain ops kill-switch --on|--off [--reason <text>] [--json] [--store <path>]
 gbrain ops dashboard [--json|--markdown] [--output <DASHBOARD.md>] [--store <path>]
+gbrain ops metrics --last 24h [--json] [--store <path>]
 gbrain ops work list [--state proposed|approved|ready|leased|running|succeeded|failed|blocked|waiting_human|cancelled|quarantined] --json [--store <path>]
 gbrain ops work enqueue --packet <file.json> [--store <path>] [--json]
 gbrain ops work claim --id <id> --worker <worker_id> --json [--store <path>]
@@ -313,6 +321,34 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     return;
   }
 
+  if (sub === 'pause') {
+    const program = flagValue(rest, '--program');
+    if (!program) throw new Error('gbrain ops pause requires --program <id>');
+    const result = pauseOpsProgram(program, { path: storePath(rest), reason: flagValue(rest, '--reason') });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.control.pause.v1' });
+    else console.log(`paused ${result.affected_programs.map(p => p.id).join(', ')}${result.affected_topic_tracks.length ? `; topic_tracks=${result.affected_topic_tracks.length}` : ''}`);
+    return;
+  }
+
+  if (sub === 'resume') {
+    const program = flagValue(rest, '--program');
+    if (!program) throw new Error('gbrain ops resume requires --program <id>');
+    const result = resumeOpsProgram(program, { path: storePath(rest), reason: flagValue(rest, '--reason') });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.control.resume.v1' });
+    else console.log(`resumed ${result.affected_programs.map(p => p.id).join(', ')}${result.affected_topic_tracks.length ? `; topic_tracks=${result.affected_topic_tracks.length}` : ''}`);
+    return;
+  }
+
+  if (sub === 'kill-switch' || sub === 'killswitch') {
+    const on = hasFlag(rest, '--on');
+    const off = hasFlag(rest, '--off');
+    if (on === off) throw new Error('gbrain ops kill-switch requires exactly one of --on or --off');
+    const result = setOpsKillSwitch(on, { path: storePath(rest), reason: flagValue(rest, '--reason') });
+    if (hasFlag(rest, '--json')) printJson({ ...result, schema: 'gbrain.ops.control.kill_switch.v1' });
+    else console.log(`kill-switch ${on ? 'ON' : 'off'}`);
+    return;
+  }
+
   if (sub === 'dashboard') {
     const dashboard = buildOpsDashboard({ path: storePath(rest) });
     if (hasFlag(rest, '--json')) {
@@ -326,6 +362,16 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     const output = flagValue(rest, '--output');
     if (output) writeFileSync(output, markdown + '\n');
     console.log(markdown);
+    return;
+  }
+
+  if (sub === 'metrics') {
+    const result = buildOpsMetrics({ path: storePath(rest), last: flagValue(rest, '--last') || '24h' });
+    if (hasFlag(rest, '--json')) printJson(result);
+    else {
+      console.log(`window=${result.window.last}	ready=${result.ready_backlog}	active_runs=${result.active_runs}	completed=${result.completions}	failed=${result.failures}`);
+      console.log(`kill_switch=${result.control.kill_switch.enabled ? 'on' : 'off'}	safety=${result.safety_audit.ok ? 'ok' : 'attention'}	hidden=${result.safety_audit.hidden_active_task_count}`);
+    }
     return;
   }
 

@@ -14,6 +14,7 @@ export const OPS_ROADMAP_STATUS_SCHEMA = 'gbrain.ops.roadmap_status.v1';
 export const OPS_WORKER_PROFILE_SCHEMA = 'gbrain.ops.worker_profile.v1';
 export const OPS_TOPIC_TRACK_SCHEMA = 'gbrain.ops.topic_track.v1';
 export const OPS_SCOUT_SOURCE_QUEUE_SCHEMA = 'gbrain.ops.scout_source_queue_item.v1';
+export const OPS_CONTROL_SCHEMA = 'gbrain.ops.control.v1';
 
 export const WORK_ITEM_STATES = [
   'proposed',
@@ -210,6 +211,25 @@ export interface OpsTopicTrack {
   updated_at: string;
 }
 
+export interface OpsControlEvent {
+  schema: typeof OPS_CONTROL_SCHEMA;
+  id: string;
+  action: 'pause_program' | 'resume_program' | 'kill_switch_on' | 'kill_switch_off';
+  program_id?: string;
+  reason?: string;
+  affected_program_ids: string[];
+  affected_topic_track_ids: string[];
+  created_at: string;
+}
+
+export interface OpsControlState {
+  kill_switch: { enabled: boolean; since?: string; reason?: string };
+  paused_program_ids: string[];
+  paused_public_scout_program_ids: string[];
+  code_writing_program_ids: string[];
+  latest_event?: OpsControlEvent;
+}
+
 export interface OpsScoutSourceQueueItem {
   schema: typeof OPS_SCOUT_SOURCE_QUEUE_SCHEMA;
   id: string;
@@ -271,6 +291,7 @@ export interface OpsState {
   supervisor_ticks: OpsSupervisorTick[];
   interrupts: OpsInterrupt[];
   budget_ledger: OpsBudgetLedgerEntry[];
+  control_events: OpsControlEvent[];
 }
 
 export interface OpsCompletion {
@@ -345,7 +366,7 @@ export interface OpsDispatchPacket {
   session_id?: string;
 }
 
-type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'topic_track_upsert' | 'scout_source_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'work_state';
+type OpsRecordType = 'init' | 'program_upsert' | 'work_upsert' | 'worker_profile_upsert' | 'topic_track_upsert' | 'scout_source_upsert' | 'roadmap_flow_upsert' | 'run_upsert' | 'lease_upsert' | 'artifact_upsert' | 'supervisor_tick' | 'interrupt_upsert' | 'budget_ledger' | 'control_event' | 'work_state';
 
 interface OpsEvent<T = unknown> {
   schema: typeof OPS_EVENT_SCHEMA;
@@ -420,6 +441,37 @@ export interface OpsDashboardState {
   interrupt_queue: OpsInterrupt[];
   supervisor_health: { status: 'green' | 'amber' | 'red' | 'unknown'; latest_tick?: OpsSupervisorTick; stale_active_lease_count: number; ready_count: number; running_count: number };
   counts: ReturnType<typeof countOps>;
+  paused_programs: OpsProgram[];
+  control: OpsControlState;
+  safety_audit: OpsSafetyAudit;
+}
+
+export interface OpsMetricsWindow {
+  ok: true;
+  schema: 'gbrain.ops.metrics.v1';
+  generated_at: string;
+  store_path: string;
+  window: { last: string; since: string; until: string };
+  counts: ReturnType<typeof countOps>;
+  completions: number;
+  failures: number;
+  active_runs: number;
+  ready_backlog: number;
+  stale_active_lease_count: number;
+  budget_usage: OpsDashboardState['budget_usage'];
+  programs: Array<{ program_id: string; status: ProgramStatus; ready: number; running: number; succeeded: number; failed: number; blocked: number; waiting_human: number }>;
+  control: OpsControlState;
+  safety_audit: OpsSafetyAudit;
+}
+
+export interface OpsSafetyAudit {
+  ok: boolean;
+  hidden_active_task_count: number;
+  contact_risk_count: number;
+  trusted_memory_mutation_risk_count: number;
+  external_public_scout_active_count: number;
+  active_tasks: Array<{ work_item_id: string; program_id: string; title: string; state: WorkItemState; lane: string; worker_kind: WorkerKind; can_contact_people: boolean; can_mutate_trusted_memory: boolean; is_external_public_scout: boolean; reason: string }>;
+  hidden_active_runs: Array<{ run_id: string; work_item_id: string; program_id: string; status: RunStatus; reason: string }>;
 }
 
 function nowIso(now?: Date): string { return (now || new Date()).toISOString(); }
@@ -438,7 +490,7 @@ export function opsStorePath(): string {
 }
 
 export function emptyOpsState(): OpsState {
-  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], topic_tracks: [], scout_source_queue: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [] };
+  return { schema: OPS_KERNEL_SCHEMA, programs: [], work_items: [], worker_profiles: [], topic_tracks: [], scout_source_queue: [], roadmap_flows: [], runs: [], leases: [], artifacts: [], supervisor_ticks: [], interrupts: [], budget_ledger: [], control_events: [] };
 }
 
 export function initOpsStore(path = opsStorePath(), now?: Date): { ok: true; path: string; initialized: boolean } {
@@ -487,6 +539,7 @@ function applyEvent(state: OpsState, evt: OpsEvent): void {
     case 'supervisor_tick': upsertById(state.supervisor_ticks, p as OpsSupervisorTick); break;
     case 'interrupt_upsert': upsertById(state.interrupts, p as OpsInterrupt); break;
     case 'budget_ledger': upsertById(state.budget_ledger, p as OpsBudgetLedgerEntry); break;
+    case 'control_event': upsertById(state.control_events, p as OpsControlEvent); break;
     case 'work_state': {
       const item = state.work_items.find(w => w.id === p.id);
       if (item) {
@@ -1508,6 +1561,7 @@ export function dispatchWorkItem(id: string, opts: OpsDispatchOptions = {}): Ops
   let state = readOpsState(path);
   let item = state.work_items.find(w => w.id === id);
   if (!item) throw new Error(`work item not found: ${id}`);
+  assertOpsControlsAllowWork(state, item);
   if (!['ready', 'running', 'leased'].includes(item.state)) throw new Error(`work item ${id} is not dispatchable (state=${item.state})`);
 
   let claimed: ReturnType<typeof claimWorkItem> | undefined;
@@ -1696,6 +1750,7 @@ export function claimWorkItem(id: string, workerId: string, opts: OpsStoreOption
   const state = readOpsState(path);
   const item = state.work_items.find(w => w.id === id);
   if (!item) throw new Error(`work item not found: ${id}`);
+  assertOpsControlsAllowWork(state, item);
   if (item.state !== 'ready') throw new Error(`work item ${id} is not ready (state=${item.state})`);
   const existingLease = state.leases.find(l => l.work_item_id === id && l.lease_status === 'active');
   if (existingLease) throw new Error(`work item ${id} already has active lease ${existingLease.id}`);
@@ -2173,6 +2228,7 @@ export function superviseOps(opts: OpsSuperviseOptions = {}): OpsSuperviseResult
 }
 
 function readyClaimCandidates(state: OpsState, now: Date): OpsWorkItem[] {
+  if (deriveControlState(state).kill_switch.enabled) return [];
   const activeProgramIds = new Set(state.programs.filter(p => p.status === 'active').map(p => p.id));
   const hasPrograms = state.programs.length > 0;
   return [...state.work_items]
@@ -2240,6 +2296,124 @@ export function auditOps(opts: OpsStoreOptions = {}): { ok: true; status: 'green
 
 function nextNumericId<T extends { id: number }>(rows: T[]): number { return rows.reduce((m, r) => Math.max(m, Number(r.id) || 0), 0) + 1; }
 
+
+function isTruthyFlag(v: unknown): boolean { return v === true || v === 'true' || v === 'yes'; }
+function programCanContactPeople(program?: OpsProgram): boolean { return isTruthyFlag(program?.autonomy?.can_contact_people) || isTruthyFlag(program?.autonomy?.external_message_send); }
+function programCanMutateTrustedMemory(program?: OpsProgram): boolean { return isTruthyFlag(program?.autonomy?.can_mutate_trusted_memory) || isTruthyFlag(program?.autonomy?.trusted_memory_write); }
+function isCodeWritingProgram(program: OpsProgram): boolean {
+  const lanes = program.lanes.map(l => l.toLowerCase());
+  return lanes.some(l => ['code', 'code_pr', 'pr', 'engineering', 'test_repair', 'migration'].includes(l)) || isTruthyFlag(program.autonomy?.can_modify_code) || isTruthyFlag(program.autonomy?.can_commit);
+}
+function isExternalPublicScoutProgram(program: OpsProgram): boolean {
+  const lanes = program.lanes.map(l => l.toLowerCase());
+  return lanes.some(l => ['public_scout', 'world_scout', 'scout', 'public_enrichment', 'public_professional_context'].includes(l)) || isTruthyFlag(program.autonomy?.can_ingest_public_sources) || isTruthyFlag(program.autonomy?.can_scan_public_professional_context);
+}
+function programMatchesControlTarget(program: OpsProgram, target: string): boolean {
+  const t = target.toLowerCase();
+  if (program.id === target) return true;
+  if (['all-public-scouts', 'public-scouts', 'external-public-scouts', 'external-scouts'].includes(t)) return isExternalPublicScoutProgram(program);
+  if (['code-writing', 'code-writers', 'code', 'code-pr'].includes(t)) return isCodeWritingProgram(program);
+  if (['all', '*'].includes(t)) return true;
+  return false;
+}
+function deriveControlState(state: OpsState): OpsControlState {
+  const latestByAction = state.control_events.at(-1);
+  const kill = [...state.control_events].reverse().find(e => e.action === 'kill_switch_on' || e.action === 'kill_switch_off');
+  const pausedProgramIds = state.programs.filter(p => p.status === 'paused').map(p => p.id).sort();
+  return {
+    kill_switch: kill?.action === 'kill_switch_on' ? { enabled: true, since: kill.created_at, reason: kill.reason } : { enabled: false, since: kill?.created_at, reason: kill?.reason },
+    paused_program_ids: pausedProgramIds,
+    paused_public_scout_program_ids: state.programs.filter(p => p.status === 'paused' && isExternalPublicScoutProgram(p)).map(p => p.id).sort(),
+    code_writing_program_ids: state.programs.filter(isCodeWritingProgram).map(p => p.id).sort(),
+    latest_event: latestByAction,
+  };
+}
+function assertOpsControlsAllowWork(state: OpsState, item: OpsWorkItem): void {
+  const control = deriveControlState(state);
+  if (control.kill_switch.enabled) throw new Error(`ops kill switch is ON; refusing to claim or dispatch work item ${item.id}`);
+  const program = state.programs.find(p => p.id === item.program_id);
+  if (program?.status === 'paused') throw new Error(`program ${program.id} is paused; refusing to claim or dispatch work item ${item.id}`);
+}
+export function pauseOpsProgram(programId: string, opts: OpsStoreOptions & { reason?: string } = {}): { ok: true; schema: typeof OPS_CONTROL_SCHEMA; path: string; event: OpsControlEvent; affected_programs: OpsProgram[]; affected_topic_tracks: OpsTopicTrack[] } {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const state = readOpsState(path);
+  const at = nowIso(opts.now);
+  const programs = state.programs.filter(p => programMatchesControlTarget(p, programId));
+  if (!programs.length) throw new Error(`no program matched pause target: ${programId}`);
+  const updatedPrograms = programs.map(p => ({ ...p, status: 'paused' as ProgramStatus, updated_at: at }));
+  const updatedTracks = state.topic_tracks.filter(t => programs.some(p => p.id === t.program_id) || programMatchesControlTarget({ ...(state.programs.find(p => p.id === t.program_id) || programs[0]), id: t.program_id } as OpsProgram, programId)).map(t => ({ ...t, status: 'paused' as ProgramStatus, updated_at: at }));
+  for (const program of updatedPrograms) appendEvent(path, 'program_upsert', program, opts.now);
+  for (const track of updatedTracks) appendEvent(path, 'topic_track_upsert', track, opts.now);
+  const event: OpsControlEvent = { schema: OPS_CONTROL_SCHEMA, id: hashId('control', { action: 'pause_program', programId, at }), action: 'pause_program', program_id: programId, reason: opts.reason, affected_program_ids: updatedPrograms.map(p => p.id), affected_topic_track_ids: updatedTracks.map(t => t.id), created_at: at };
+  appendEvent(path, 'control_event', event, opts.now);
+  return { ok: true, schema: OPS_CONTROL_SCHEMA, path, event, affected_programs: updatedPrograms, affected_topic_tracks: updatedTracks };
+}
+export function resumeOpsProgram(programId: string, opts: OpsStoreOptions & { reason?: string } = {}): { ok: true; schema: typeof OPS_CONTROL_SCHEMA; path: string; event: OpsControlEvent; affected_programs: OpsProgram[]; affected_topic_tracks: OpsTopicTrack[] } {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const state = readOpsState(path);
+  const at = nowIso(opts.now);
+  const programs = state.programs.filter(p => programMatchesControlTarget(p, programId));
+  if (!programs.length) throw new Error(`no program matched resume target: ${programId}`);
+  const updatedPrograms = programs.map(p => ({ ...p, status: 'active' as ProgramStatus, updated_at: at }));
+  const updatedTracks = state.topic_tracks.filter(t => programs.some(p => p.id === t.program_id)).map(t => ({ ...t, status: 'active' as ProgramStatus, updated_at: at }));
+  for (const program of updatedPrograms) appendEvent(path, 'program_upsert', program, opts.now);
+  for (const track of updatedTracks) appendEvent(path, 'topic_track_upsert', track, opts.now);
+  const event: OpsControlEvent = { schema: OPS_CONTROL_SCHEMA, id: hashId('control', { action: 'resume_program', programId, at }), action: 'resume_program', program_id: programId, reason: opts.reason, affected_program_ids: updatedPrograms.map(p => p.id), affected_topic_track_ids: updatedTracks.map(t => t.id), created_at: at };
+  appendEvent(path, 'control_event', event, opts.now);
+  return { ok: true, schema: OPS_CONTROL_SCHEMA, path, event, affected_programs: updatedPrograms, affected_topic_tracks: updatedTracks };
+}
+export function setOpsKillSwitch(enabled: boolean, opts: OpsStoreOptions & { reason?: string } = {}): { ok: true; schema: typeof OPS_CONTROL_SCHEMA; path: string; event: OpsControlEvent; control: OpsControlState } {
+  const path = opts.path || opsStorePath();
+  initOpsStore(path, opts.now);
+  const state = readOpsState(path);
+  const at = nowIso(opts.now);
+  const event: OpsControlEvent = { schema: OPS_CONTROL_SCHEMA, id: hashId('control', { action: enabled ? 'kill_switch_on' : 'kill_switch_off', at }), action: enabled ? 'kill_switch_on' : 'kill_switch_off', reason: opts.reason, affected_program_ids: state.programs.map(p => p.id), affected_topic_track_ids: state.topic_tracks.map(t => t.id), created_at: at };
+  appendEvent(path, 'control_event', event, opts.now);
+  return { ok: true, schema: OPS_CONTROL_SCHEMA, path, event, control: deriveControlState(readOpsState(path)) };
+}
+export function buildOpsSafetyAudit(state: OpsState): OpsSafetyAudit {
+  const activeItems = state.work_items.filter(w => activeState(w.state));
+  const activeIds = new Set(activeItems.map(w => w.id));
+  const hidden = state.runs.filter(r => ACTIVE_RUN_STATUSES.has(r.status) && !activeIds.has(r.work_item_id));
+  const activeTasks = activeItems.map(w => {
+    const program = state.programs.find(p => p.id === w.program_id);
+    const canContact = programCanContactPeople(program);
+    const canMutate = programCanMutateTrustedMemory(program);
+    const isScout = !!program && isExternalPublicScoutProgram(program);
+    const reasons = [canContact ? 'program autonomy permits contacting people' : 'program autonomy denies contacting people', canMutate ? 'program autonomy permits trusted memory mutation' : 'program autonomy denies trusted memory mutation', isScout ? 'external/public scout lane' : 'not an external/public scout lane'];
+    return { work_item_id: w.id, program_id: w.program_id, title: w.title, state: w.state, lane: w.lane, worker_kind: w.worker_kind, can_contact_people: canContact, can_mutate_trusted_memory: canMutate, is_external_public_scout: isScout, reason: reasons.join('; ') };
+  });
+  const hiddenActiveRuns = hidden.map(r => ({ run_id: r.id, work_item_id: r.work_item_id, program_id: r.program_id, status: r.status, reason: 'active run has no active work item in ops state' }));
+  const contact = activeTasks.filter(t => t.can_contact_people).length;
+  const mutate = activeTasks.filter(t => t.can_mutate_trusted_memory).length;
+  return { ok: hiddenActiveRuns.length === 0 && contact === 0 && mutate === 0, hidden_active_task_count: hiddenActiveRuns.length, contact_risk_count: contact, trusted_memory_mutation_risk_count: mutate, external_public_scout_active_count: activeTasks.filter(t => t.is_external_public_scout).length, active_tasks: activeTasks, hidden_active_runs: hiddenActiveRuns };
+}
+function parseLastWindow(raw?: string): number {
+  if (!raw) return 24 * 60 * 60 * 1000;
+  const m = raw.trim().match(/^(\d+(?:\.\d+)?)(m|h|d)$/i);
+  if (!m) throw new Error('--last must look like 30m, 24h, or 7d');
+  const n = Number(m[1]);
+  const unit = m[2].toLowerCase();
+  return n * (unit === 'm' ? 60_000 : unit === 'h' ? 3_600_000 : 86_400_000);
+}
+export function buildOpsMetrics(opts: OpsStoreOptions & { last?: string } = {}): OpsMetricsWindow {
+  const path = opts.path || opsStorePath();
+  const state = readOpsState(path);
+  const until = opts.now || new Date();
+  const ms = parseLastWindow(opts.last);
+  const since = new Date(until.getTime() - ms);
+  const sinceMs = since.getTime();
+  const inWindow = (iso?: string) => !!iso && Date.parse(iso) >= sinceMs && Date.parse(iso) <= until.getTime();
+  const windowItems = state.work_items.filter(w => inWindow(w.updated_at));
+  const byProgram = state.programs.map(p => {
+    const items = state.work_items.filter(w => w.program_id === p.id);
+    return { program_id: p.id, status: p.status, ready: items.filter(w => w.state === 'ready').length, running: items.filter(w => activeState(w.state)).length, succeeded: items.filter(w => w.state === 'succeeded' && inWindow(w.updated_at)).length, failed: items.filter(w => w.state === 'failed' && inWindow(w.updated_at)).length, blocked: items.filter(w => w.state === 'blocked').length, waiting_human: items.filter(w => w.state === 'waiting_human').length };
+  });
+  return { ok: true, schema: 'gbrain.ops.metrics.v1', generated_at: nowIso(until), store_path: path, window: { last: opts.last || '24h', since: since.toISOString(), until: until.toISOString() }, counts: countOps(state, until), completions: windowItems.filter(w => w.state === 'succeeded').length, failures: windowItems.filter(w => w.state === 'failed').length, active_runs: state.runs.filter(r => ACTIVE_RUN_STATUSES.has(r.status)).length, ready_backlog: state.work_items.filter(w => w.state === 'ready').length, stale_active_lease_count: countOps(state, until).stale_active_lease_count, budget_usage: summarizeBudgetUsage(state.budget_ledger.filter(e => inWindow(e.occurred_at))), programs: byProgram, control: deriveControlState(state), safety_audit: buildOpsSafetyAudit(state) };
+}
+
 export function countOps(state: OpsState, now?: Date): {
   programs: Record<string, number>;
   work_items: Record<string, number>;
@@ -2249,6 +2423,7 @@ export function countOps(state: OpsState, now?: Date): {
   supervisor_ticks: number;
   interrupts: Record<string, number>;
   budget_ledger: number;
+  control_events: number;
   active_count: number;
   ready_count: number;
   stale_active_lease_count: number;
@@ -2270,6 +2445,7 @@ export function countOps(state: OpsState, now?: Date): {
     supervisor_ticks: state.supervisor_ticks.length,
     interrupts: by(state.interrupts, i => i.status),
     budget_ledger: state.budget_ledger.length,
+    control_events: state.control_events.length,
     active_count: activeWorkCount(state, nowDate),
     ready_count: state.work_items.filter(w => w.state === 'ready').length,
     stale_active_lease_count: activeLeases.filter(l => Date.parse(l.expires_at) <= nowMs).length,
@@ -2295,10 +2471,12 @@ export function buildOpsDashboard(opts: OpsStoreOptions = {}): OpsDashboardState
     .map(lease => ({ lease, work_item: state.work_items.find(w => w.id === lease.work_item_id) }));
   const latestTick = state.supervisor_ticks.at(-1);
   const openInterrupts = state.interrupts.filter(i => !['resolved', 'dismissed'].includes(i.status));
+  const control = deriveControlState(state);
   return {
     generated_at: nowIso(now),
     store_path: path,
     active_programs: [...state.programs].filter(p => p.status === 'active').sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id)),
+    paused_programs: [...state.programs].filter(p => p.status === 'paused').sort((a, b) => b.priority - a.priority || a.id.localeCompare(b.id)),
     ready_backlog: [...state.work_items].filter(w => w.state === 'ready').sort(sortWorkItems),
     running_tasks: [...state.work_items].filter(w => activeState(w.state)).sort(sortWorkItems),
     stale_tasks: staleTasks,
@@ -2317,6 +2495,8 @@ export function buildOpsDashboard(opts: OpsStoreOptions = {}): OpsDashboardState
       running_count: counts.active_count,
     },
     counts,
+    control,
+    safety_audit: buildOpsSafetyAudit(state),
   };
 }
 
@@ -2355,9 +2535,19 @@ export function renderOpsDashboardMarkdown(dashboard: OpsDashboardState): string
   lines.push(`- Running/leased tasks: ${dashboard.supervisor_health.running_count}`);
   lines.push(`- Stale active leases: ${dashboard.supervisor_health.stale_active_lease_count}`);
   lines.push('');
+  lines.push('## Control plane');
+  lines.push('');
+  lines.push(`- Kill switch: **${dashboard.control.kill_switch.enabled ? 'ON' : 'off'}**${dashboard.control.kill_switch.reason ? ` — ${dashboard.control.kill_switch.reason}` : ''}`);
+  lines.push(`- Paused programs: ${dashboard.control.paused_program_ids.length ? dashboard.control.paused_program_ids.join(', ') : 'none'}`);
+  lines.push(`- Safety audit: **${dashboard.safety_audit.ok ? 'ok' : 'attention'}** (hidden=${dashboard.safety_audit.hidden_active_task_count}, contact-risk=${dashboard.safety_audit.contact_risk_count}, trusted-memory-risk=${dashboard.safety_audit.trusted_memory_mutation_risk_count})`);
+  lines.push('');
   lines.push('## Active programs');
   lines.push('');
   pushProgramRows(lines, dashboard.active_programs);
+  lines.push('');
+  lines.push('## Paused programs');
+  lines.push('');
+  pushProgramRows(lines, dashboard.paused_programs);
   lines.push('');
   lines.push('## Ready backlog');
   lines.push('');
