@@ -8,6 +8,8 @@ The brain wires itself. Every page write extracts entity references and creates 
 
 GBrain is those patterns, generalized. 29 skills. Install in 30 minutes. Your agent does the work. As Garry's personal agent gets smarter, so does yours.
 
+> **Living Memory / Intelligence Substrate:** downstream builds that use GBrain as an OpenClaw substrate should treat recall as the kernel, not the product. See [`docs/living-memory/intelligence-substrate.md`](docs/living-memory/intelligence-substrate.md) and [`docs/living-memory/eval-policy.md`](docs/living-memory/eval-policy.md) for the three-layer architecture and anti-overfit eval gates.
+
 > **~30 minutes to a fully working brain.** Database ready in 2 seconds (PGLite, no server). You just answer questions about API keys.
 
 > **LLMs:** fetch [`llms.txt`](llms.txt) for the documentation map, or [`llms-full.txt`](llms-full.txt) for the same map with core docs inlined in one fetch. **Agents:** start with [`AGENTS.md`](AGENTS.md) (or [`CLAUDE.md`](CLAUDE.md) if you're Claude Code).
