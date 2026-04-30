@@ -1,5 +1,5 @@
 import { routeModel, type RouteModelInput } from './model-router.ts';
-import { redactRoutePrompt, summarizeRoutePrompt, type PrivacyTier, type RouteDecision } from './privacy-policy.ts';
+import { canSendLegacyPrivacyToProvider, redactRoutePrompt, summarizeRoutePrompt, type PrivacyTier, type RouteDecision } from './privacy-policy.ts';
 import type { WorkKind } from './privacy-policy.ts';
 
 export interface ProviderRunInput extends RouteModelInput {
@@ -38,6 +38,7 @@ export function prepareProviderRun(input: ProviderRunInput): ProviderRunEnvelope
   const guardrails = baseGuardrails(input.privacy);
   const reasons: string[] = [...route.warnings];
   const redacted_prompt = redactRoutePrompt(input.prompt, input.privacy);
+  const sanitized = redacted_prompt !== input.prompt;
 
   if (input.privacy === 'P0') {
     return {
@@ -60,6 +61,19 @@ export function prepareProviderRun(input: ProviderRunInput): ProviderRunEnvelope
       dry_run: true,
       decision: 'local_only',
       reasons: [...reasons, 'P1 without escalation remains local-only'],
+      guardrails,
+    };
+  }
+
+  const providerPolicy = canSendLegacyPrivacyToProvider(input.privacy, route.preferred_provider, sanitized);
+  if (!providerPolicy.ok) {
+    return {
+      schema: 'gbrain.ai.provider-runner.v1',
+      ok: false,
+      route,
+      dry_run: true,
+      decision: 'reject',
+      reasons: [...reasons, `provider policy denied: ${providerPolicy.reason}`],
       guardrails,
     };
   }

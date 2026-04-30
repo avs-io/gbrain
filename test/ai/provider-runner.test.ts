@@ -35,6 +35,14 @@ describe('provider runner skeleton', () => {
     expect(out.provider_request?.prompt).toBe('review this patch');
   });
 
+  test('P1 cloud escalation emits only sanitized provider requests', () => {
+    const out = prepareProviderRun({ kind: 'bookmark_enrich', privacy: 'P1', prompt: 'private relationship detail', allowCloudEscalation: true });
+    expect(out.ok).toBe(true);
+    expect(out.provider_request?.provider).toBe('minimax-m27');
+    expect(out.provider_request?.prompt).toBe('[redacted-private-context]');
+    expect(JSON.stringify(out.provider_request)).not.toContain('private relationship detail');
+  });
+
   test('CLI emits JSON and reads prompt files', () => {
     const dir = mkdtempSync(join(tmpdir(), 'gbrain-provider-runner-'));
     const promptFile = join(dir, 'prompt.txt');

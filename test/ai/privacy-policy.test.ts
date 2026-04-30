@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { assertRouteAllowed, redactRoutePrompt } from '../../src/core/ai/privacy-policy.ts';
+import { assertRouteAllowed, canSendLegacyPrivacyToProvider, redactRoutePrompt } from '../../src/core/ai/privacy-policy.ts';
 
 describe('privacy gates', () => {
   test('rejects P0 cloud routing', () => {
@@ -12,5 +12,15 @@ describe('privacy gates', () => {
 
   test('redacts private prompt logging', () => {
     expect(redactRoutePrompt('secret stuff', 'P0')).toContain('[redacted-private-context]');
+  });
+
+  test('applies canonical provider policy to legacy AI privacy tiers', () => {
+    expect(canSendLegacyPrivacyToProvider('P1', 'minimax-m27', false).ok).toBe(false);
+    expect(canSendLegacyPrivacyToProvider('P1', 'minimax-m27', true).ok).toBe(true);
+    expect(canSendLegacyPrivacyToProvider('P0', 'codex', true).ok).toBe(false);
+  });
+
+  test('fails closed for unknown providers in routes', () => {
+    expect(() => assertRouteAllowed({ preferred_provider: 'mystery' as any, fallback_providers: [], require_json_schema: true, allow_external_network: true, allow_raw_private_context: false, warnings: [] }, { kind: 'world_scout', privacy: 'P3' })).toThrow('provider policy denied');
   });
 });

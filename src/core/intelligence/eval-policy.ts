@@ -1,8 +1,6 @@
+import type { Namespace as EvalNamespace, PrivacyTier as EvalPrivacyTier } from './policy.ts';
+
 export const EVAL_CLASS_DOMINANCE_LIMIT = 0.25;
-
-export type EvalNamespace = 'personal' | 'project' | 'network' | 'world' | 'operational' | 'synthetic';
-
-export type EvalPrivacyTier = 'P0_LOCAL_ONLY' | 'P1_PRIVATE' | 'P2_LIMITED_CLOUD' | 'P3_PUBLIC';
 
 export type EvalWorkflowType =
   | 'recall'
