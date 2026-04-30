@@ -44,6 +44,13 @@ import {
   readTopicDashboardInputs,
   validateTopicDashboard,
 } from '../core/topics/dashboard.ts';
+import {
+  defaultTopicEvalArtifactPath,
+  readTopicEvalSuite,
+  readTopicEvalSuiteFromFixtureDir,
+  runTopicEvalSuite,
+  writeTopicEvalReport,
+} from '../core/topics/eval.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -59,9 +66,26 @@ function registryPath(args: string[]): string { return flagValue(args, '--file')
 export async function runTopicsCommand(_engine: unknown, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
-    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics state --topic <id> --from-reduction <file> [--from-extraction <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics delta --topic <id> --from-current <file> [--from-previous <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics answer-pack --topic <id> [--domain <domain>] --from-state <file>|--from-reduction <file> [--from-source-spans <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics dashboard --topic <id> [--from-state <file>] [--from-delta <file>] [--from-opportunities <file>] [--from-answer-pack <file>] [--from-bookmark-radar <file>] [--from-report-audit <file>] [--from-report-reduction <file>] [--from-work-items <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, claim reduction, current-state, daily-delta, domain-scoped answer-pack, and topic dashboard surfaces. Public P3/world only; WorkItem creation never performs live web fetching.`);
+    console.log(`gbrain topics list [--json] [--file <topic_tracks.yaml>]\ngbrain topics get <id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics validate [--json] [--file <topic_tracks.yaml>]\ngbrain topics seed-work <id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\ngbrain topics extract --topic <id> --from-source-spans <file>|--from-scout-report <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics reduce-claims --topic <id> --from-extraction <file> [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics state --topic <id> --from-reduction <file> [--from-extraction <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics delta --topic <id> --from-current <file> [--from-previous <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics answer-pack --topic <id> [--domain <domain>] --from-state <file>|--from-reduction <file> [--from-source-spans <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics dashboard --topic <id> [--from-state <file>] [--from-delta <file>] [--from-opportunities <file>] [--from-answer-pack <file>] [--from-bookmark-radar <file>] [--from-report-audit <file>] [--from-report-reduction <file>] [--from-work-items <file>] [--json] [--out <json>] [--artifact-store <jsonl>] [--no-store]\ngbrain topics eval --suite <file>|--fixture-dir <dir> [--json] [--out <json>] [--artifact-dir <dir>] [--write-artifact]\ngbrain topics source-targets list <topic-id> [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets validate [<topic-id>] [--json] [--file <topic_tracks.yaml>]\ngbrain topics source-targets seed-fetch-work <topic-id> --json [--store <ops.jsonl>] [--file <topic_tracks.yaml>] [--force]\n\nTopicTrack v2 registry, Research Plan DSL, public source target commands, review-only candidate extraction, claim reduction, current-state, daily-delta, domain-scoped answer-pack, topic dashboard, and deterministic PTIF eval surfaces. Public P3/world only; WorkItem creation never performs live web fetching.`);
      return;
    }
+
+  if (sub === 'eval') {
+    const suitePath = flagValue(rest, '--suite');
+    const fixtureDir = flagValue(rest, '--fixture-dir');
+    if (!suitePath && !fixtureDir) throw new Error('gbrain topics eval requires --suite <file> or --fixture-dir <dir>');
+    if (suitePath && fixtureDir) throw new Error('gbrain topics eval accepts only one of --suite or --fixture-dir');
+    const suite = suitePath ? readTopicEvalSuite(suitePath) : readTopicEvalSuiteFromFixtureDir(fixtureDir!);
+    const out = flagValue(rest, '--out');
+    const writeArtifact = hasFlag(rest, '--write-artifact') || !!flagValue(rest, '--artifact-store');
+    const artifactPath = out || flagValue(rest, '--artifact-store') || (writeArtifact ? defaultTopicEvalArtifactPath(process.cwd(), suite.suite_id) : undefined);
+    const report = runTopicEvalSuite(suite, { artifactDir: flagValue(rest, '--artifact-dir'), artifactPath, writeArtifact });
+    if (out && artifactPath !== out) writeTopicEvalReport(out, report);
+    if (hasFlag(rest, '--json') || out) printJson(report);
+    else console.log(`${report.suite_id}\tpass=${report.pass_count}\tfail=${report.fail_count}\tcoverage=${report.coverage_categories.join(',')}\tartifact=${report.artifact_path || 'none'}`);
+    if (!report.ok) process.exitCode = 1;
+    return;
+  }
 
   if (sub === 'extract') {
     const topic = flagValue(rest, '--topic') || rest.find(a => !a.startsWith('--'));
