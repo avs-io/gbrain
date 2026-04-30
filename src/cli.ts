@@ -375,6 +375,11 @@ async function handleCliOnly(command: string, args: string[]) {
     await runRadarCommand(null, args);
     return;
   }
+  if (command === 'scout') {
+    const { runScoutCommand } = await import('./commands/scout.ts');
+    await runScoutCommand(null, args);
+    return;
+  }
   if (command === 'personal') {
     const { runMemory } = await import('./commands/memory.ts');
     await runMemory(['personal', ...args]);
@@ -638,11 +643,6 @@ async function handleCliOnly(command: string, args: string[]) {
         // v0.20.0 Cathedral II Layer 10 (C5): "what does <symbol> call?"
         const { runCodeCallees } = await import('./commands/code-callees.ts');
         await runCodeCallees(engine, args);
-        break;
-      }
-      case 'scout': {
-        const { runScoutCommand } = await import('./commands/scout.ts');
-        await runScoutCommand(engine, args);
         break;
       }
       case 'repos': {
