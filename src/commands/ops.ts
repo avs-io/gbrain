@@ -219,19 +219,59 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
   if (sub === 'scout') {
     const action = rest[0];
     const actionArgs = rest.slice(1);
-    if (action !== 'cycle') throw new Error('gbrain ops scout supports: cycle');
-    const topicTrackId = flagValue(actionArgs, '--topic-track') || flagValue(actionArgs, '--track') || flagValue(actionArgs, '--id');
-    if (!topicTrackId) throw new Error('gbrain ops scout cycle requires --topic-track <id>');
-    const input = flagValue(actionArgs, '--input');
-    if (!input) throw new Error('gbrain ops scout cycle requires --input <public-sources.json>');
-    const sources = JSON.parse(readFileSync(input, 'utf8'));
-    if (!Array.isArray(sources)) throw new Error('gbrain ops scout cycle --input must be a JSON array');
-    const report = runTopicTrackScoutCycle({ topicTrackId, sources, storePath: storePath(actionArgs), since: flagValue(actionArgs, '--since') });
-    const out = flagValue(actionArgs, '--out');
-    if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
-    if (hasFlag(actionArgs, '--json') || out) printJson(report);
-    else console.log(`${report.topic_track_id}\tsources=${report.scout_report.source_items.length}\tclaims=${report.extraction.claims.length}\tdeltas=${report.recent_deltas.new.length + report.recent_deltas.changed.length + report.recent_deltas.repeated.length}\tsurfacing=${report.surfacing_candidates.length}`);
-    return;
+    if (!action || action === '--help' || action === '-h') {
+      console.log(`gbrain ops scout — subcommands:
+  fetch  --topic-track <id> [--url-list <file>] [--max-fetches <n>] [--ignore-robots] [--json]
+  cycle  --topic-track <id> --input <public-sources.json> [--json]`);
+      return;
+    }
+    if (action === 'fetch') {
+      // Live fetch: pull URLs from source_targets or url-list, write to scout_source_queue
+      const { fetchTopicTrack } = await import('../core/scout/fetcher.ts');
+      const topicTrackId = flagValue(actionArgs, '--topic-track') || flagValue(actionArgs, '--track') || flagValue(actionArgs, '--id');
+      if (!topicTrackId) throw new Error('gbrain ops scout fetch requires --topic-track <id>');
+      const urlListFile = flagValue(actionArgs, '--url-list') || flagValue(actionArgs, '--urls');
+      let urlList: string[] | undefined;
+      if (urlListFile) {
+        const raw = JSON.parse(readFileSync(urlListFile, 'utf8'));
+        urlList = Array.isArray(raw) ? raw : Array.isArray(raw?.urls) ? raw.urls : [];
+      }
+      const maxFetches = flagValue(actionArgs, '--max-fetches') || undefined;
+      const ignoreRobots = hasFlag(actionArgs, '--ignore-robots');
+      const report = await fetchTopicTrack(topicTrackId, {
+        storePath: storePath(actionArgs),
+        maxFetches: maxFetches ? Number(maxFetches) : undefined,
+        urlList,
+        ignoreRobots,
+        userAgent: 'GBrain-Scout/1.0 (+https://gbrain.ai/bot)',
+        timeoutMs: 15_000,
+      });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else {
+        const f = report.fetches;
+        console.log(`${report.topic_track_id}\tfetched=${f.succeeded}/${f.total}\tfailed=${f.failed}\tskipped=${f.skipped}\trobots_blocked=${f.robots_blocked}\trate_limited=${f.rate_limited}\tduration_ms=${report.duration_ms}`);
+        for (const r of report.results) {
+          if (!r.ok) console.log(`  ERROR ${r.url}: ${r.error}`);
+        }
+      }
+      return;
+    }
+    if (action === 'cycle') {
+      const topicTrackId = flagValue(actionArgs, '--topic-track') || flagValue(actionArgs, '--track') || flagValue(actionArgs, '--id');
+      if (!topicTrackId) throw new Error('gbrain ops scout cycle requires --topic-track <id>');
+      const input = flagValue(actionArgs, '--input');
+      if (!input) throw new Error('gbrain ops scout cycle requires --input <public-sources.json>');
+      const sources = JSON.parse(readFileSync(input, 'utf8'));
+      if (!Array.isArray(sources)) throw new Error('gbrain ops scout cycle --input must be a JSON array');
+      const report = runTopicTrackScoutCycle({ topicTrackId, sources, storePath: storePath(actionArgs), since: flagValue(actionArgs, '--since') });
+      const out = flagValue(actionArgs, '--out');
+      if (out) writeFileSync(out, JSON.stringify(report, null, 2) + '\n');
+      if (hasFlag(actionArgs, '--json') || out) printJson(report);
+      else console.log(`${report.topic_track_id}\tsources=${report.scout_report.source_items.length}\tclaims=${report.extraction.claims.length}\tdeltas=${report.recent_deltas.new.length + report.recent_deltas.changed.length + report.recent_deltas.repeated.length}\tsurfacing=${report.surfacing_candidates.length}`);
+      return;
+    }
   }
 
   if (sub === 'bookmarks') {
