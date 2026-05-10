@@ -53,6 +53,7 @@ const ALLOWED_NAMESPACES = [
   'wiki/open-loops/',
   'wiki/taste-signals/',
   'sources/imports/',  // gmail/imported email archives — PII handled via frontmatter source metadata
+  'sources/bookmarks/', // X/Twitter bookmarks with PII in content but platform provenance in frontmatter
   'working/email/',        // staging: email-derived proposals before promotion
   'working/ledger-proposal/', // staging: ledger proposals before promotion
 ];
@@ -68,12 +69,14 @@ const TRUSTED_PAGES = [
 // content is a raw import archive with its own provenance metadata.
 const SKIP_PII_NAMESPACES = [
   'sources/imports/',  // gmail/imported email archives — trust the source_* frontmatter fields
+  'sources/bookmarks/', // bookmarks — PII in content, not user-intent; source in frontmatter
 ];
 
 // Namespaces where source_attribution check is skipped (source type pages
 // carry attribution in their frontmatter source_* fields instead).
 const SKIP_SOURCE_ATTR_NAMESPACES = [
   'sources/imports/',  // source pages use source_id / source_type / source_account for attribution
+  'sources/bookmarks/', // bookmarks — attribution via frontmatter platform/permalink fields
   'working/email/',        // staging: source attribution added on promotion to wiki/
   'working/ledger-proposal/', // staging: source attribution added on promotion to wiki/
 ];

@@ -564,7 +564,7 @@ async function handleCliOnly(command: string, args: string[]) {
       }
       case 'gog-gmail-sync': {
         const { runGogGmailSyncCommand } = await import('./commands/gog-gmail-sync.ts');
-        await runGogGmailSyncCommand(args);
+        await runGogGmailSyncCommand(args, engine);
         break;
       }
       case 'files': {

@@ -9,7 +9,7 @@ import { spawnSync } from 'child_process';
 
 const ENRICHED_DIR = '/Users/a/.gbrain/integrations/enriched/x/';
 const GBRAIN_CLI   = '/Users/a/.openclaw/workspace/gbrain/src/cli.ts';
-const LIMIT        = 10;
+const LIMIT        = 350; // no cap — process all enriched bookmarks
 let written = 0;
 let errors  = 0;
 

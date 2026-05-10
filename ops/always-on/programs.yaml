@@ -4,11 +4,7 @@ programs:
     status: active
     priority: 82
     owner_agent: local-private
-    objective: >
-      Ingest browser-captured ChatGPT, Claude, and Gemini conversation transcripts
-      from ~/.gbrain/integrations/browser-transcripts/{chatgpt,claude,gemini}/
-      into GBrain's social-post pipeline. Deduplicates by conv_id + message hash,
-      converts to SocialPost format, and stores raw data.
+    objective: "Ingest browser-captured ChatGPT, Claude, and Gemini conversation transcripts from ~/.gbrain/integrations/browser-transcripts/{chatgpt,claude,gemini}/ into GBrain's social-post pipeline. Deduplicates by conv_id + message hash, converts to SocialPost format, and stores raw data."
     lanes:
       - transcript_ingest
       - social_post_ingest
@@ -35,13 +31,7 @@ programs:
     status: active
     priority: 78
     owner_agent: local-private
-    objective: >
-      Run the bookmark enrichment pipeline: read ~/.gbrain/integrations/enrichment-queue.jsonl,
-      cross-reference with enrichment-status.jsonl, parse 350+ enriched X JSON files from
-      ~/.gbrain/integrations/enriched/x/, run bookmark-deep-radar classification, and write
-      "remember" and "act" decisions as GBrain pages at
-      wiki/sources/bookmarks/{platform}/{author}/{slug}. Also enqueues investigate/act
-      work items. Review-only: no external sends, no trusted memory mutation.
+    objective: "Run the bookmark enrichment pipeline: read ~/.gbrain/integrations/enrichment-queue.jsonl, cross-reference with enrichment-status.jsonl, parse 350+ enriched X JSON files from ~/.gbrain/integrations/enriched/x/, run bookmark-deep-radar classification, and write "remember" and "act" decisions as GBrain pages at wiki/sources/bookmarks/{platform}/{author}/{slug}. Also enqueues investigate/act work items. Review-only: no external sends, no trusted memory mutation."
     lanes:
       - intake
       - research

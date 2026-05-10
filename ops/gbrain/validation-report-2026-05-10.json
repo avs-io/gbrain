@@ -1,14 +1,634 @@
 {
-  "timestamp": "2026-05-10T19:43:09.344Z",
+  "timestamp": "2026-05-10T20:06:48.984Z",
   "period": {
-    "from": "2026-05-09T19:43:09.344Z",
-    "to": "2026-05-10T19:43:09.344Z"
+    "from": "2026-05-09T20:06:48.984Z",
+    "to": "2026-05-10T20:06:48.984Z"
   },
-  "pages_checked": 0,
-  "pages_clean": 0,
-  "pages_with_issues": 0,
+  "pages_checked": 100,
+  "pages_clean": 99,
+  "pages_with_issues": 1,
   "critical_issues": 0,
-  "summaries": [],
-  "issues_by_page": [],
-  "error": "Failed to get recent pages: gbrain list failed: [ai.gateway] recipe \"google\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps.\n[ai.gateway] recipe \"ollama\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps.\n[ai.gateway] recipe \"litellm\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps."
+  "summaries": [
+    {
+      "slug": "sources/bookmarks/x/emollick/2052578336883311001",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/emollick/2052519946651947216",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/cognition/2052490659408322936",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/_bschmidtchen/2052454092061179945",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/devonmeadows/2052431964574265712",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elder_plinius/2052428222411706636",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/michpokrass/2052265070017876478",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/alex_whedon/2051663268704636937",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/aaditsh/2051386197629694387",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/pmarca/2051374498994364529",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/fabianstelzer/2051205727851565154",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/steipete/2051020548335874369",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2050965072302969245",
+      "ok": false,
+      "issue_count": 2,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/mr_r0b0t/2050956694105059539",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/enjojoyy/2050944233540923454",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/populartourist/2050864105456587151",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/populartourist/2050748210445009170",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/dealignai/2050697760849199273",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/saulgcullen/2050297208184910076",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2050297057022525814",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/mr_r0b0t/2050264587308536161",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/ibuildthecloud/2050246433547436380",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/uzairansar/2050202786386563415",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2050034277375672520",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/karpathy/2049907410303865030",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/fin_barclay_/2049888236625969638",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/malikwas1f/2049873582474571837",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/theo/2049653251004662141",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/songjunkr/2049398794526290016",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/ai_hakase_/2049067860324930032",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bnjmn_marie/2049028928786874377",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/eastweb3eth/2048956592574640253",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2048906090851799272",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2048801964457140540",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/sama/2048751392031203544",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/alexsongis/2048602890063802686",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bryan_johnson/2048560004672655824",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bnjmn_marie/2048548673597198699",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/alexwg/2048535680721224055",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/witcheer/2048492509790130292",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bengreenfield/2048489955903840726",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/leftcurvedev_/2048485407889768499",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/davidasinclair/2048477285594845673",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/0xkeenz/2048461906294477155",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/gnukeith/2048457148544258234",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/leftcurvedev_/2048450138171908555",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/populartourist/2048434269589061897",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/yaroslavvb/2048410388824490312",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/jun_song/2048382351592571282",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/antirez/2048376839165317601",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/songjunkr/2048376753819877719",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/outsource_/2048288416169595255",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/om_patel5/2048204411986469232",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/dealignai/2048150211881848987",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/kaiostephens/2048101261644275942",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/aijoey/2048044748292649286",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elliotarledge/2047920685704794565",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bnjmn_marie/2047786725846724918",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/deepseek_ai/2047516922263285776",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/cyb3rops/2047222658069057789",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/jun_song/2047150685620502818",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2047149696393593079",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bryan_johnson/2047063027812589712",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/turshija/2047034870967435476",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/noisyb0y1/2046962651373109474",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bryan_johnson/2046649591307862420",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/support_huihui/2046600782536114488",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2046123487589507120",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2045705871527653794",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/leftcurvedev_/2045449352827580602",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/philipkiely/2045005872292913179",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/varun_mathur/2044882359565312468",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/seelffff/2044868944830644317",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/suni_code/2044851842790961635",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2044315118583066738",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/overworld_ai/2042289230349803835",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/gkisokay/2037902655016804496",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2030662075999994213",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/mattshumer_/2029620518249508950",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/danushman/2028007612076146804",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/sama/2027578580159631610",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/beyoncegarden/2024176037492351398",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/bryan_johnson/2022490768099938487",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elder_plinius/2022413914957660162",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elder_plinius/2022410530946953423",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/dwarkesh_sp/2022357801276690455",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elder_plinius/2021700759398629640",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elder_plinius/2021596202190463467",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/joozio/2021524372234834151",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/milesdeutscher/2021487637299855540",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/aiedge_/2020618669315981598",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/_javierivero/2019874984639033357",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/saviomartin7/2018817160983044395",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2017734278805917924",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/ashen_one/2017317310059421860",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2016550636301500647",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2016550631205458135",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2016550627350892737",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/minchoi/2016550624486183178",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    },
+    {
+      "slug": "sources/bookmarks/x/alexocheema/2016404573917683754",
+      "ok": true,
+      "issue_count": 0,
+      "critical": false
+    }
+  ],
+  "issues_by_page": [
+    {
+      "slug": "sources/bookmarks/x/elonmusk/2050965072302969245",
+      "type": "bookmark",
+      "title": "2050965072302969245",
+      "updated_at": "2026-05-10T19:59:28.818Z",
+      "ok": false,
+      "issues": [
+        {
+          "severity": "error",
+          "check": "frontmatter",
+          "message": "no content"
+        },
+        {
+          "severity": "error",
+          "check": "source_attribution",
+          "message": "no content"
+        }
+      ]
+    }
+  ]
 }
