@@ -138,7 +138,7 @@ export function heartbeatTemplateMarkdown(): string {
 Run only the heartbeat check. Do not perform project work inside heartbeat unless the check explicitly instructs a supervisor kick.
 
 Steps:
-1. Run: \`cd /Users/a/.openclaw/workspace/gbrain && bun run src/cli.ts ops heartbeat-check --json\`
+1. Run: \`cd ~/gbrain-sync && bun run src/cli.ts ops heartbeat-check --json\`
 2. If status is \`green\`, reply exactly: \`HEARTBEAT_OK\`.
 3. If status is \`amber\` or \`red\`, report only:
    - stale or failed critical tasks,

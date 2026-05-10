@@ -6,6 +6,7 @@ import { operations } from '../core/operations.ts';
 import { VERSION } from '../version.ts';
 import { buildToolDefs } from './tool-defs.ts';
 import { dispatchToolCall, validateParams, buildOperationContext } from './dispatch.ts';
+import { OPS_TOOLS, handleOpsTool } from './ops-tools.ts';
 
 export async function startMcpServer(engine: BrainEngine) {
   const server = new Server(
@@ -17,7 +18,7 @@ export async function startMcpServer(engine: BrainEngine) {
   // the subagent tool registry (v0.15+) can call the same mapper against a
   // filtered OPERATIONS subset instead of duplicating this shape.
   server.setRequestHandler(ListToolsRequestSchema, async () => ({
-    tools: buildToolDefs(operations),
+    tools: [...buildToolDefs(operations), ...OPS_TOOLS],
   }));
 
   // Dispatch tool calls via shared dispatch.ts (parity with HTTP transport).
@@ -32,6 +33,13 @@ export async function startMcpServer(engine: BrainEngine) {
     // see private hunches via takes_list / takes_search / query. Operators
     // who want stdio to see everything should call ops directly via
     // `gbrain call <op>` (sets remote=false in src/cli.ts).
+    // Ops tools (ops_reports_reduce, ops_opportunities_v2, etc.) are handled
+    // via handleOpsTool which bypasses the brain engine — they work against
+    // the JSONL ops store.
+    const opsToolNames = OPS_TOOLS.map(t => t.name);
+    if (opsToolNames.includes(name)) {
+      return handleOpsTool(name, params ?? {});
+    }
     return dispatchToolCall(engine, name, params, {
       remote: true,
       takesHoldersAllowList: ['world'],
