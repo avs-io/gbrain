@@ -14,7 +14,9 @@
  * 8000 character input truncation.
  */
 
+import { createHash } from 'node:crypto';
 import OpenAI from 'openai';
+import { requireEntrypointAudit } from './ai/model-call-audit.ts';
 
 // --- Configuration ---
 
@@ -35,6 +37,25 @@ const BASE_DELAY_MS = 4000;
 const MAX_DELAY_MS = 120000;
 const BATCH_SIZE = 100; // Ollama embed API handles batches natively
 
+function sha256(value: string): string {
+  return createHash('sha256').update(value).digest('hex');
+}
+
+function auditEmbeddingBatch(entrypoint: 'embedOpenAI' | 'embedOllama', provider: 'openai-embedding' | 'ollama-embedding', model: string, texts: string[]): void {
+  requireEntrypointAudit({
+    entrypoint,
+    audit: {
+      provider,
+      model,
+      prompt: texts.join('\n---gbrain-embedding-input---\n'),
+      privacy: 'P1_PRIVATE',
+      namespace: 'embedding',
+      input_refs: texts.map((text, index) => `embedding-input:${index}:sha256:${sha256(text)}`),
+      status: 'recorded',
+    },
+  });
+}
+
 // --- Ollama Embedding Client ---
 
 interface OllamaEmbedResponse {
@@ -47,6 +68,7 @@ interface OllamaEmbedResponse {
 
 async function ollamaEmbed(text: string): Promise<Float32Array> {
   const truncated = text.slice(0, MAX_CHARS);
+  auditEmbeddingBatch('embedOllama', 'ollama-embedding', OLLAMA_MODEL, [truncated]);
   const body = JSON.stringify({
     model: OLLAMA_MODEL,
     prompt: truncated,
@@ -76,6 +98,7 @@ async function ollamaEmbed(text: string): Promise<Float32Array> {
 
 async function ollamaEmbedBatch(texts: string[]): Promise<Float32Array[]> {
   const truncated = texts.map(t => t.slice(0, MAX_CHARS));
+  auditEmbeddingBatch('embedOllama', 'ollama-embedding', OLLAMA_MODEL, truncated);
   const body = JSON.stringify({
     model: OLLAMA_MODEL,
     input: truncated,
@@ -122,6 +145,7 @@ async function openaiEmbed(text: string): Promise<Float32Array> {
 
 async function openaiEmbedBatch(texts: string[]): Promise<Float32Array[]> {
   const truncated = texts.map(t => t.slice(0, MAX_CHARS));
+  auditEmbeddingBatch('embedOpenAI', 'openai-embedding', OPENAI_MODEL, truncated);
   const response = await getOpenAIClient().embeddings.create({
     model: OPENAI_MODEL,
     input: truncated,
@@ -182,6 +206,7 @@ async function embedBatchWithRetry(texts: string[]): Promise<Float32Array[]> {
       if (USE_OLLAMA) {
         return await ollamaEmbedBatch(texts);
       } else if (USE_OPENAI) {
+        auditEmbeddingBatch('embedOpenAI', 'openai-embedding', OPENAI_MODEL, texts);
         const response = await getOpenAIClient().embeddings.create({
           model: OPENAI_MODEL,
           input: texts,

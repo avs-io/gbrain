@@ -619,20 +619,38 @@ export async function runDoctor(engine: BrainEngine | null, args: string[], dbSo
   progress.heartbeat('jsonb_integrity');
   try {
     const sql = db.getConnection();
-    const targets: Array<{ table: string; col: string; expected: 'object' | 'array' }> = [
+    const targets: Array<{ table: string; col: string; expected: 'object' | 'array'; optional?: boolean }> = [
       { table: 'pages',         col: 'frontmatter',    expected: 'object' },
       { table: 'raw_data',      col: 'data',           expected: 'object' },
       { table: 'ingest_log',    col: 'pages_updated',  expected: 'array'  },
       { table: 'files',         col: 'metadata',       expected: 'object' },
       { table: 'page_versions', col: 'frontmatter',    expected: 'object' },
+      { table: 'sources',                  col: 'config',         expected: 'object', optional: true },
+      { table: 'code_edges_chunk',         col: 'edge_metadata',  expected: 'object', optional: true },
+      { table: 'code_edges_symbol',        col: 'edge_metadata',  expected: 'object', optional: true },
+      { table: 'minion_jobs',              col: 'data',           expected: 'object', optional: true },
+      { table: 'minion_jobs',              col: 'progress',       expected: 'object', optional: true },
+      { table: 'minion_jobs',              col: 'stacktrace',     expected: 'array',  optional: true },
+      { table: 'minion_jobs',              col: 'quiet_hours',    expected: 'object', optional: true },
+      { table: 'minion_inbox',             col: 'payload',        expected: 'object', optional: true },
+      { table: 'subagent_messages',        col: 'content_blocks', expected: 'array',  optional: true },
+      { table: 'subagent_tool_executions', col: 'input',          expected: 'object', optional: true },
     ];
     let totalBad = 0;
     const breakdown: string[] = [];
-    for (const { table, col } of targets) {
+    for (const { table, col, expected, optional } of targets) {
       progress.heartbeat(`jsonb_integrity.${table}.${col}`);
-      const rows = await sql.unsafe(
-        `SELECT count(*)::int AS n FROM ${table} WHERE jsonb_typeof(${col}) = 'string'`,
-      );
+      const opener = expected === 'array' ? '\\[' : '\\{';
+      let rows;
+      try {
+        rows = await sql.unsafe(
+          `SELECT count(*)::int AS n FROM ${table}
+           WHERE jsonb_typeof(${col}) = 'string' AND (${col} #>> '{}') ~ '^\\s*${opener}'`,
+        );
+      } catch (e) {
+        if (optional) continue;
+        throw e;
+      }
       const n = Number((rows as any)[0]?.n ?? 0);
       if (n > 0) { totalBad += n; breakdown.push(`${table}.${col}=${n}`); }
     }

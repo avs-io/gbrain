@@ -11,10 +11,17 @@ export const SYNTHETIC_TYPES = [
 export const SYNTHETIC_QUERY_SHAPES = [
   'exact_fact',
   'approximate_recall',
+  'vague_recall',
+  'wrong_detail',
   'decision_arc',
   'relationship_arc',
   'timeline',
+  'temporal',
+  'alias',
+  'emotional',
+  'story',
   'why_not',
+  'multilingual',
   'medical_or_health',
   'opportunity_memory',
 ] as const;

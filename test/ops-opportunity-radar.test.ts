@@ -82,14 +82,14 @@ describe('Opportunity radar v1', () => {
     const store = join(dir, 'opportunities.jsonl');
     writeFileSync(input, JSON.stringify(fixture(), null, 2));
 
-    const radar = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'radar', '--input', input, '--store', store, '--json'])));
+    const radar = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'radar', '--input', input, '--store', store, '--now', '2026-04-30T08:00:00.000Z', '--json'])));
     expect(radar.candidate_count).toBe(1);
     const id = radar.candidates[0].id;
 
-    const brief = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'brief-ready', '--store', store, '--json'])));
+    const brief = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'brief-ready', '--store', store, '--now', '2026-04-30T09:00:00.000Z', '--json'])));
     expect(brief.top_candidates[0].id).toBe(id);
 
-    const feedback = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'feedback', id, '--not-useful', '--reason', 'noise / bad match', '--store', store, '--json'])));
+    const feedback = JSON.parse(await capture(() => runOpsCommand(null, ['opportunities', 'feedback', id, '--not-useful', '--reason', 'noise / bad match', '--store', store, '--now', '2026-04-30T09:10:00.000Z', '--json'])));
     expect(feedback.feedback.value).toBe('not_useful');
     expect(feedback.feedback.false_positive).toBe(true);
   });

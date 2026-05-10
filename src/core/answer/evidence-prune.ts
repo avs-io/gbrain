@@ -38,9 +38,13 @@ function coerceEvidenceWindow(input: EvidenceWindow | RecallEvidence | any): Evi
       slug: String(input?.slug ?? input?.source?.slug ?? ''),
       title: input?.title ?? input?.source?.title,
       section: String(input?.section ?? input?.source?.section ?? ''),
+      date: input?.source_date ?? input?.date ?? input?.source?.date,
+      speaker: input?.speaker ?? input?.source?.speaker,
+      authority: input?.authority ?? input?.source?.authority,
       lineRange: typeof input?.start_line === 'number' && typeof input?.end_line === 'number'
         ? { start: input.start_line, end: input.end_line }
         : input?.source?.lineRange,
+      turnRange: input?.turnRange ?? input?.source?.turnRange,
     },
     quote: String(input?.quote ?? ''),
     quoteHash: input?.quote_hash ?? input?.quoteHash,

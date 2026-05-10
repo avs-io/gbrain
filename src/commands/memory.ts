@@ -10,10 +10,12 @@ import { GBRAIN_NAMESPACES, GBRAIN_PRIVACY_LEVELS, GBRAIN_SENSITIVITY_LEVELS, ty
 import { buildRadarReport, scoreRadarCandidates } from '../core/memory/radar.ts';
 import { reduceReviewJsonlToProposalPacket } from '../core/memory/reducer-bridge.ts';
 import { loadScoutInputs, runScoutDryRun, validateScoutObservation, validateScoutRecipe, type ScoutObservation } from '../core/memory/scoutnet.ts';
+import { runReflection, type ReflectionResult } from '../core/memory/reflection.ts';
+import { findGbrainRoot } from '../core/skillpack/bundle.ts';
 
 export type MemoryProposalCommandResult = {
   ok: boolean;
-  action: 'validate' | 'enqueue' | 'list' | 'export' | 'reduce' | 'route' | 'surface' | 'context-pack' | 'personal-context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list';
+  action: 'validate' | 'enqueue' | 'list' | 'export' | 'reduce' | 'route' | 'surface' | 'context-pack' | 'personal-context-pack' | 'scout-validate' | 'scout-dry-run' | 'radar-score' | 'radar-list' | 'reflection-run' | 'reflection-notes' | 'reflection-surfacing' | 'reflection-summary';
   dryRun?: boolean;
   queued?: boolean;
   duplicate?: boolean;
@@ -641,6 +643,123 @@ export async function runMemory(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // ── memory reflection subcommand ──────────────────────────────
+  if (group === 'reflection') {
+    const subArgs = args.slice(1);
+    if (hasFlag(subArgs, '--help')) {
+      console.log('gbrain memory reflection <run|notes|surfacing|summary> [--fixtures <path>] [--context <text>] [--json] [--out <path>] [--yes]');
+      console.log('');
+      console.log('Runs the reflection/consolidation pipeline over typed-memory fixtures.');
+      console.log('Outputs reflection notes (staleness, contradictions, consolidation, opportunity)');
+      console.log('and surfacing candidates with interruption-cost gating.');
+      console.log('');
+      console.log('Subcommands:');
+      console.log('  run      Full pipeline: notes + surfacing + suppression');
+      console.log('  notes    Reflection notes only');
+      console.log('  surfacing Surfacing candidates only');
+      console.log('  summary  Compact summary (counts + metadata)');
+      return;
+    }
+    const subcommand = subArgs[0];
+    if (!subcommand) {
+      console.error('Usage: gbrain memory reflection <run|notes|surfacing|summary> [--fixtures <path>] [--context <text>] [--json] [--out <path>] [--yes]');
+      printHelp();
+      process.exit(1);
+    }
+    const fixturesPath = flagValue(subArgs, '--fixtures') || join(
+      findGbrainRoot() ?? process.cwd(), '..', 'projects', 'gbrain-living-memory', 'implementation', 'typed-memory-fixtures.jsonl',
+    );
+    const contextText = flagValue(subArgs, '--context') ?? '';
+    const outputPath = flagValue(subArgs, '--out');
+    const useYes = hasFlag(subArgs, '--yes');
+
+    let fixtures: any[];
+    try {
+      const raw = readFileSync(fixturesPath, 'utf-8');
+      fixtures = raw.split('\n').filter((l) => l.trim()).map((l) => JSON.parse(l));
+    } catch (err) {
+      console.error(`Failed to load fixtures from ${fixturesPath}: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+
+    const now = new Date().toISOString();
+    const context = contextText || '';
+
+    try {
+      if (subcommand === 'run') {
+        const result = runReflection(fixtures, context, now);
+        if (outputPath && useYes) {
+          writeFileSync(outputPath, JSON.stringify(result, null, 2), 'utf-8');
+          console.log(`Wrote reflection result: ${outputPath}`);
+        }
+        if (hasFlag(subArgs, '--json')) {
+          printJson(result);
+        } else {
+          console.log(`Reflection complete: ${result.reflection_notes.length} notes, ${result.surfacing_candidates.length} candidates, ${result.suppression_count} suppressed`);
+          for (const n of result.reflection_notes) {
+            console.log(`- [${n.kind}] ${n.target_id}: ${n.reason}`);
+          }
+          for (const c of result.surfacing_candidates) {
+            console.log(`- [surfacing:${c.interruption_cost}] ${c.id}: ${c.title} (policy=${c.surfacing_policy})`);
+          }
+          if (result.suppression_count > 0) {
+            console.log(`(Suppressed ${result.suppression_count} high-sensitivity candidates)`);
+          }
+        }
+      } else if (subcommand === 'notes') {
+        const result = runReflection(fixtures, context, now);
+        if (hasFlag(subArgs, '--json')) {
+          printJson(result.reflection_notes);
+        } else {
+          for (const n of result.reflection_notes) {
+            console.log(`[${n.kind}] ${n.target_id}: ${n.reason}`);
+          }
+        }
+      } else if (subcommand === 'surfacing') {
+        const result = runReflection(fixtures, context, now);
+        const { buildSurfacingCandidates } = await import('../core/memory/reflection.js');
+        const surfacing = buildSurfacingCandidates(fixtures, context, result.reflection_notes, now);
+        if (outputPath && useYes) {
+          writeFileSync(outputPath, JSON.stringify(surfacing, null, 2), 'utf-8');
+          console.log(`Wrote surfacing candidates: ${outputPath}`);
+        }
+        if (hasFlag(subArgs, '--json')) {
+          printJson(surfacing);
+        } else {
+          for (const c of surfacing) {
+            console.log(`[${c.interruption_cost}] ${c.id}: ${c.title} (policy=${c.surfacing_policy})`);
+          }
+        }
+      } else if (subcommand === 'summary') {
+        const result = runReflection(fixtures, context, now);
+        const summary = {
+          reflectionNotesCount: result.reflection_notes.length,
+          surfacingCandidatesCount: result.surfacing_candidates.length,
+          suppressionCount: result.suppression_count,
+          warnings: result.warnings,
+          reflectionNotes: result.reflection_notes.map((n) => ({ kind: n.kind, target_id: n.target_id, confidence: n.confidence })),
+          surfacingCandidates: result.surfacing_candidates.map((c) => ({ id: c.id, title: c.title, interruptionCost: c.interruption_cost, policy: c.surfacing_policy })),
+        };
+        if (outputPath && useYes) {
+          writeFileSync(outputPath, JSON.stringify(summary, null, 2), 'utf-8');
+          console.log(`Wrote summary: ${outputPath}`);
+        }
+        if (hasFlag(subArgs, '--json')) {
+          printJson(summary);
+        } else {
+          console.log(`Reflection summary: ${result.reflection_notes.length} notes, ${result.surfacing_candidates.length} candidates, ${result.suppression_count} suppressed`);
+        }
+      } else {
+        console.error(`Unknown memory reflection subcommand: ${subcommand}`);
+        printHelp();
+        process.exit(1);
+      }
+    } catch (err) {
+      console.error(`Reflection failed: ${err instanceof Error ? err.message : String(err)}`);
+      process.exit(1);
+    }
+  }
+
   if (group === 'personal') {
     const subArgs = args.slice(1);
     const subcommand = subArgs[0];
@@ -906,11 +1025,12 @@ gbrain memory scout validate --recipe <recipe.json> [--observations <observation
 gbrain memory scout dry-run --recipe <recipe.json> --observations <observations.json> [--output <report.json>] [--json]
 gbrain memory radar score --input <scout-dry-run-report.json> [--output <radar-report.json>] [--json]
 gbrain memory radar list  --input <scout-dry-run-report.json> [--json]
+gbrain memory reflection <run|notes|surfacing|summary> [--fixtures <path>] [--context <text>] [--json] [--out <path>] [--yes]
 gbrain memory proposals validate --packet <packet.json> [--json]
 gbrain memory proposals enqueue  --packet <packet.json> [--dry-run|--yes] [--json]
 gbrain memory proposals reduce   [--claim-ledger <claim-ledger.jsonl>] [--memory-queue <memory-proposals.jsonl>] [--output <packet.json>] [--enqueue] [--dry-run|--yes] [--json]
 gbrain memory proposals list [--json]
 gbrain memory proposals export [--format markdown] [--output <review.md>] [--json]
 
-Review-only memory bridge. route, surface, scout, and radar never edit trusted pages, send external messages, perform live web crawls, notify users, or change global config. Proposal enqueue paths default to dry-run unless --yes is supplied.`);
+Review-only memory bridge. route, surface, scout, radar, and reflection never edit trusted pages, send external messages, perform live web crawls, notify users, or change global config. Proposal enqueue paths default to dry-run unless --yes is supplied.`);
 }

@@ -6,6 +6,7 @@ import { verifyClaimSupport } from './claim-support-verifier.ts';
 import { buildMemoryAtomProposal } from './memory-atom-proposal.ts';
 import type { IntelligenceJob } from './job-queue.ts';
 import type { PrivacyTier, WorkKind } from './privacy-policy.ts';
+import { requireEntrypointAudit, type ModelCallAuditInput } from './model-call-audit.ts';
 
 export type LocalRunnerStatus = 'succeeded' | 'failed' | 'needs_review' | 'unsupported';
 
@@ -13,6 +14,7 @@ export interface LocalRunnerOptions {
   queuePath?: string;
   inputRefBaseDir?: string;
   now?: Date;
+  audit: ModelCallAuditInput;
 }
 
 export interface LocalRunnerEnvelope {
@@ -142,7 +144,8 @@ function claimVerify(job: IntelligenceJob, route: ReturnType<typeof routeModel>,
   return { schema: 'gbrain.ai.local-runner.v1', job_id: job.id, status: support.ok ? 'succeeded' : 'needs_review', route, outputs: { kind: 'claim_verify', input_ref: job.input_ref, claim_support: support }, errors: support.ok ? [] : support.reasons, guardrails };
 }
 
-export function runLocalIntelligenceJob(job: IntelligenceJob, options: LocalRunnerOptions = {}): LocalRunnerEnvelope {
+export function runLocalIntelligenceJob(job: IntelligenceJob, options: LocalRunnerOptions): LocalRunnerEnvelope {
+  requireEntrypointAudit({ entrypoint: 'runLocalIntelligenceJob', audit: options.audit });
   const route = routeModel({ kind: safeKind(job.work_kind) as WorkKind, privacy: safePrivacy(job.privacy_tier), allowCloudEscalation: false });
   const guardrails = buildGuardrails(job, route);
   if (job.privacy_tier === 'P0' || job.privacy_tier === 'P1') guardrails.push('privacy tier does not allow cloud escalation');

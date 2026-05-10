@@ -19,7 +19,7 @@ for (const op of operations) {
 }
 
 // CLI-only commands that bypass the operation layer
-const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'ops', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'claims', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'topics', 'world', 'context', 'radar', 'actions', 'personal']);
+const CLI_ONLY = new Set(['init', 'upgrade', 'post-upgrade', 'check-update', 'integrations', 'publish', 'check-backlinks', 'lint', 'report', 'import', 'export', 'files', 'embed', 'serve', 'call', 'config', 'doctor', 'migrate', 'sync', 'extract', 'features', 'autopilot', 'graph-query', 'jobs', 'agent', 'ops', 'apply-migrations', 'skillpack-check', 'skillpack', 'resolvers', 'integrity', 'memory', 'claim', 'claims', 'repair-jsonb', 'recall', 'answer', 'orphans', 'source', 'sources', 'dream', 'check-resolvable', 'routing-eval', 'skillify', 'smoke-test', 'repos', 'code-def', 'code-refs', 'reindex-code', 'code-callers', 'code-callees', 'frontmatter', 'synthetic', 'ai', 'scout', 'topics', 'world', 'context', 'radar', 'reflection', 'actions', 'personal', 'writeback', 'quality', 'gog-gmail-sync']);
 
 async function main() {
   // Parse global flags (--quiet / --progress-json / --progress-interval)
@@ -285,6 +285,14 @@ function formatResult(opName: string, result: unknown): string {
 
 async function handleCliOnly(command: string, args: string[]) {
   // Commands that don't need a database connection
+  if (command === 'writeback') {
+    const { spawnSync } = await import('child_process');
+    const { dirname, resolve } = await import('path');
+    const { fileURLToPath } = await import('url');
+    const ledgerPath = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', 'ops', 'gbrain-memory-engine', 'writeback-ledger.js');
+    const result = spawnSync(process.execPath, [ledgerPath, ...args], { stdio: 'inherit' });
+    process.exit(result.status ?? (result.error ? 1 : 0));
+  }
   if (command === 'init') {
     const { runInit } = await import('./commands/init.ts');
     await runInit(args);
@@ -373,6 +381,11 @@ async function handleCliOnly(command: string, args: string[]) {
   if (command === 'radar') {
     const { runRadarCommand } = await import('./commands/radar.ts');
     await runRadarCommand(null, args);
+    return;
+  }
+  if (command === 'reflection') {
+    const { runReflectionCommand } = await import('./commands/reflection.ts');
+    await runReflectionCommand(null, args);
     return;
   }
   if (command === 'actions') {
@@ -516,9 +529,17 @@ async function handleCliOnly(command: string, args: string[]) {
     return;
   }
 
+  if (command === 'quality') {
+    const { runQualityCommand } = await import('./commands/quality.ts');
+    await runQualityCommand(null, args);
+    return;
+  }
+
   if (command === 'ops') {
+    const opsEngine = await connectEngine();
     const { runOpsCommand } = await import('./commands/ops.ts');
-    await runOpsCommand(null, args);
+    await runOpsCommand(opsEngine, args);
+    await opsEngine.disconnect();
     return;
   }
 
@@ -536,6 +557,16 @@ async function handleCliOnly(command: string, args: string[]) {
         await runExport(engine, args);
         break;
       }
+      case 'social-sync': {
+        const { runSocialSyncCommand } = await import('./commands/social-sync.ts');
+        await runSocialSyncCommand(args);
+        break;
+      }
+      case 'gog-gmail-sync': {
+        const { runGogGmailSyncCommand } = await import('./commands/gog-gmail-sync.ts');
+        await runGogGmailSyncCommand(args);
+        break;
+      }
       case 'files': {
         const { runFiles } = await import('./commands/files.ts');
         await runFiles(engine, args);
@@ -547,8 +578,13 @@ async function handleCliOnly(command: string, args: string[]) {
         break;
       }
       case 'serve': {
-        const { runServe } = await import('./commands/serve.ts');
+        const { runServe, runHttpServer } = await import('./commands/serve.ts');
         await runServe(engine);
+        // Optionally start HTTP API server alongside MCP server
+        const httpPort = parseInt(process.env.GBRAIN_HTTP_PORT ?? '', 10);
+        if (!isNaN(httpPort) && httpPort > 0) {
+          await runHttpServer(engine, httpPort);
+        }
         return; // serve doesn't disconnect
       }
       case 'call': {
@@ -749,7 +785,7 @@ SEARCH
   search <query>                     Keyword search (tsvector)
   query <question> [--no-expand]     Hybrid search (RRF + expansion)
   ask <question> [--no-expand]       Alias for query
-  recall <query> [--quotes] [--json] Exact source-window recall with evidence
+  recall <query> [--json] [--conversation-only] [--show-genesis] [--timeline] [--source-id id] [--classify]
   answer <query> [--json]            Deterministic cited answer from recall evidence
   claim propose --from-span <id>      Propose review-only source-backed claim
 
@@ -802,13 +838,14 @@ TOOLS
                                      See also: autopilot --install (continuous daemon).
   check-resolvable [--json] [--fix]  Validate skill tree (reachability/MECE/DRY)
   report --type <name> --content ... Save timestamped report to brain/reports/
+  quality arena ...                 Deterministic local Quality Arena create/status/snapshot/pilot
 
 SOURCES (multi-repo / multi-brain)
   sources list                       Show registered sources
   sources add <id> --path <p>        Register a source (id = short name, e.g. 'wiki')
   sources remove <id>                Remove a source + its pages
   source show|around|grep            Inspect exact stored source quote windows
-  recall <query> --quotes --json     Recall exact source quotes or abstain
+  recall <query> [--json] [--conversation-only] [--show-genesis] [--timeline] [--source-id id] [--classify]
   answer <query> --json              Draft bounded answer with exact span citations
   sync --all                         Sync all sources with a local_path
   sync --source <id>                 Sync one specific source

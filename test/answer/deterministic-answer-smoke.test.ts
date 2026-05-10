@@ -101,4 +101,82 @@ describe('deterministic-v2 answer envelope', () => {
     expect(envelope.sections.every(section => section.claimIds.length > 0)).toBe(true);
     expect(envelope.answer).not.toContain('Rationale:\n\n');
   });
+
+
+  test('CLI deterministic-v2 compact human output is concise while JSON remains full detail', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-answer-v2-compact-human-'));
+    const path = join(dir, 'recall.json');
+    writeFileSync(path, JSON.stringify(recall), 'utf8');
+
+    const strictStdout = await captureStdout(() => runAnswerCommand(null, ['--from-recall-json', path, '--synthesis', 'deterministic-v2']));
+    expect(strictStdout).toContain('Citations:');
+    expect(strictStdout).toContain('quote_hash=');
+
+    const compactStdout = await captureStdout(() => runAnswerCommand(null, [
+      '--from-recall-json', path,
+      '--synthesis', 'deterministic-v2',
+      '--compact',
+      '--max-claims', '1',
+      '--max-list-items', '2',
+    ]));
+    expect(compactStdout).toContain('Compact answer:');
+    expect(compactStdout).toContain('Provenance summary:');
+    expect(compactStdout).not.toContain('quote_hash=');
+    const compactClaimLines = compactStdout.split('\n').filter(line => line.startsWith('- ') && !line.startsWith('- ['));
+    expect(compactClaimLines.length).toBeLessThanOrEqual(1);
+
+    const compactJsonStdout = await captureStdout(() => runAnswerCommand(null, [
+      '--from-recall-json', path,
+      '--synthesis', 'deterministic-v2',
+      '--json',
+      '--compact',
+      '--max-claims', '1',
+    ]));
+    const compactJson = JSON.parse(compactJsonStdout);
+    expect(compactJson.claims.length).toBeGreaterThan(0);
+    expect(compactJson.citations[0].quoteHash).toBe(recall.evidence[0].quote_hash);
+  });
+
+  test('LLM-assisted deterministic-v2 is opt-in and off by default', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'gbrain-answer-v2-llm-opt-in-'));
+    const path = join(dir, 'recall.json');
+    writeFileSync(path, JSON.stringify(recall), 'utf8');
+
+    const baseline = buildDeterministicAnswerEnvelope(recall, { maxEvidence: 2, maxQuoteChars: 200 });
+    const disabledStdout = await captureStdout(() => runAnswerCommand(null, [
+      '--from-recall-json',
+      path,
+      '--synthesis',
+      'deterministic-v2',
+      '--json',
+    ]));
+    const disabledPayload = JSON.parse(disabledStdout);
+
+    expect(disabledPayload.llm_assisted).toBeUndefined();
+    expect(disabledPayload.answer).toBe(baseline.answer);
+    expect(disabledPayload.status).toBe(baseline.status);
+
+    const previous = process.env.GBRAIN_ANSWER_LLM_ASSISTED;
+    process.env.GBRAIN_ANSWER_LLM_ASSISTED = '1';
+    try {
+      const enabledStdout = await captureStdout(() => runAnswerCommand(null, [
+        '--from-recall-json',
+        path,
+        '--synthesis',
+        'deterministic-v2',
+        '--json',
+      ]));
+      const enabledPayload = JSON.parse(enabledStdout);
+
+      expect(enabledPayload.llm_assisted).toBeDefined();
+      expect(enabledPayload.llm_assisted.enabled).toBe(true);
+      expect(enabledPayload.llm_assisted.route).toBe('mock');
+      expect(enabledPayload.llm_assisted.bounds.llm_citations_allowed).toBe(false);
+      expect(enabledPayload.llm_assisted.bounds.trusted_mutations_allowed).toBe(false);
+      expect(typeof enabledPayload.llm_assisted.rejectedLlmCitations).toBe('number');
+    } finally {
+      if (previous === undefined) delete process.env.GBRAIN_ANSWER_LLM_ASSISTED;
+      else process.env.GBRAIN_ANSWER_LLM_ASSISTED = previous;
+    }
+  });
 });

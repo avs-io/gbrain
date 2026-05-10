@@ -1,0 +1,32 @@
+{
+  "schema": "lifeos.worker_completion.v1",
+  "work_item": "WP-R64-GBRAIN-MODEL-CALL-AUDIT-GLOBAL-GUARD",
+  "target_row": "RDEP-15",
+  "status": "completed",
+  "outcome": "PASS",
+  "recommended_next_state": "reducer_pending",
+  "summary": "Implemented deterministic fail-closed global guard for known model/LLM-call entrypoints requiring audit metadata (provider/model/privacy/prompt_hash/input_refs/output_refs policy) and added focused tests covering RDEP-15 conditions.",
+  "gates": [
+    {
+      "name": "bun test test/intelligence-jobs-model-call-audit.test.ts --timeout=60000",
+      "result": "pass"
+    },
+    {
+      "name": "bun test test/ai/provider-runner.test.ts test/ai/local-runner.test.ts --timeout=60000",
+      "result": "pass"
+    },
+    {
+      "name": "bun run typecheck",
+      "result": "pass"
+    }
+  ],
+  "artifacts": [
+    "/Users/a/.openclaw/workspace/gbrain/WP-R64-GBRAIN-MODEL-CALL-AUDIT-GLOBAL-GUARD.md"
+  ],
+  "notes": [
+    "Requested external artifact path was outside writable sandbox roots; artifacts were written in repo root instead.",
+    "No edits made to CHRONOLOGICAL_REPAIR_LEDGER.* or PRO_REPAIR_ACTIVE_RUN_20260508.json.",
+    "Assessment scoped to RDEP-15 only."
+  ],
+  "timestamp": "2026-05-08T00:00:00.000Z"
+}

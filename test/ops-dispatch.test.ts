@@ -9,6 +9,7 @@ import {
   enqueueWorkPacket,
   readOpsState,
   reconcileOpenClawTasks,
+  syncWorkerProfilesFromYamlFile,
 } from '../src/core/ops/kernel.ts';
 
 function tempDir(): string {
@@ -56,6 +57,43 @@ function completion(id: string) {
   };
 }
 
+function strictWork(id: string, extra: Record<string, unknown> = {}) {
+  return work(id, {
+    worker_kind: 'acp_codex',
+    lane: 'code',
+    model_lane: 'code',
+    privacy_tier: 'P2_LIMITED_CLOUD',
+    context_pack_required: true,
+    context_pack_id: `ctx-${id}`,
+    context_pack_status: 'validated',
+    output_contract_required: true,
+    output_contract_id: `out-${id}`,
+    ...extra,
+  });
+}
+
+function writeStrictProfiles(dir: string, extra = ''): string {
+  const profilesPath = join(dir, 'worker_profiles.yaml');
+  writeFileSync(profilesPath, `
+worker_profiles:
+  - id: codex-pr-engineer
+    worker_kind: acp_codex
+    runtime: codex
+    provider: codex
+    model: openai-codex/default
+    public_cloud: false
+    allowed_privacy_tiers: [P1, P2]
+    preferred_lanes: [code]
+    task_types: [code]
+    max_concurrency: 2
+    metadata:
+      allowed_model_lanes: [codex_code, acp_codex, code]
+      requires_context_pack: true
+      requires_output_contract: true
+${extra}`);
+  return profilesPath;
+}
+
 async function capture(fn: () => Promise<void>): Promise<string> {
   const original = console.log;
   const logs: string[] = [];
@@ -65,6 +103,86 @@ async function capture(fn: () => Promise<void>): Promise<string> {
 }
 
 describe('ops OpenClaw dispatch integration', () => {
+  test('fail-closed WorkItem with no synced profile is denied before claim/lease', () => {
+    const store = tempStore();
+    enqueueWorkPacket(packet(strictWork('strict-no-profile-a5')), { path: store });
+
+    expect(() => dispatchWorkItem('strict-no-profile-a5', { path: store, dryRun: true })).toThrow(/no synced worker profiles; fail-closed WorkItem cannot use legacy route/);
+
+    const state = readOpsState(store);
+    expect(state.work_items.find(w => w.id === 'strict-no-profile-a5')?.state).toBe('ready');
+    expect(state.leases).toEqual([]);
+    expect(state.runs).toEqual([]);
+  });
+
+  test('fail-closed WorkItem missing ContextPack is denied before claim/lease', () => {
+    const dir = tempDir();
+    const store = tempStore(dir);
+    syncWorkerProfilesFromYamlFile(writeStrictProfiles(dir), { path: store });
+    enqueueWorkPacket(packet(strictWork('strict-missing-context-a5', { context_pack_id: undefined, context_pack_required: true })), { path: store });
+
+    expect(() => dispatchWorkItem('strict-missing-context-a5', { path: store, dryRun: true })).toThrow(/missing ContextPack; no dispatch/);
+
+    const state = readOpsState(store);
+    expect(state.work_items.find(w => w.id === 'strict-missing-context-a5')?.state).toBe('ready');
+    expect(state.leases).toEqual([]);
+    expect(state.runs).toEqual([]);
+  });
+
+  test('fail-closed WorkItem missing OutputContract is denied before claim/lease', () => {
+    const dir = tempDir();
+    const store = tempStore(dir);
+    syncWorkerProfilesFromYamlFile(writeStrictProfiles(dir), { path: store });
+    enqueueWorkPacket(packet(strictWork('strict-missing-output-a5', { output_contract_id: undefined, output_contract_required: true })), { path: store });
+
+    expect(() => dispatchWorkItem('strict-missing-output-a5', { path: store, dryRun: true })).toThrow(/missing OutputContract\/completion contract; no dispatch/);
+
+    const state = readOpsState(store);
+    expect(state.work_items.find(w => w.id === 'strict-missing-output-a5')?.state).toBe('ready');
+    expect(state.leases).toEqual([]);
+    expect(state.runs).toEqual([]);
+  });
+
+  test('fail-closed WorkItem with disallowed model lane is denied before claim/lease', () => {
+    const dir = tempDir();
+    const store = tempStore(dir);
+    const profilesPath = join(dir, 'worker_profiles.yaml');
+    writeFileSync(profilesPath, `
+worker_profiles:
+  - id: codex-pr-engineer
+    worker_kind: acp_codex
+    runtime: codex
+    provider: codex
+    model: openai-codex/default
+    allowed_privacy_tiers: [P2]
+    preferred_lanes: [code]
+    task_types: [code]
+    max_concurrency: 2
+    metadata:
+      allowed_model_lanes: [review]
+      requires_context_pack: true
+      requires_output_contract: true
+`);
+    syncWorkerProfilesFromYamlFile(profilesPath, { path: store });
+    enqueueWorkPacket(packet(strictWork('strict-lane-denied-a5')), { path: store });
+
+    expect(() => dispatchWorkItem('strict-lane-denied-a5', { path: store, dryRun: true })).toThrow(/does not allow model lane code/);
+    expect(readOpsState(store).leases).toEqual([]);
+  });
+
+  test('fail-closed WorkItem with valid profile, ContextPack, and OutputContract dispatches', () => {
+    const dir = tempDir();
+    const store = tempStore(dir);
+    syncWorkerProfilesFromYamlFile(writeStrictProfiles(dir), { path: store });
+    enqueueWorkPacket(packet(strictWork('strict-valid-a5')), { path: store });
+
+    const result = dispatchWorkItem('strict-valid-a5', { path: store, dryRun: true });
+
+    expect(result.dispatch_packet.worker_profile_id).toBe('codex-pr-engineer');
+    expect(result.run.worker_profile_id).toBe('codex-pr-engineer');
+    expect(readOpsState(store).leases).toHaveLength(1);
+  });
+
   test('dummy subagent dispatch records dry-run packet, work pack, run metadata, and artifact', async () => {
     const dir = tempDir();
     const store = tempStore(dir);

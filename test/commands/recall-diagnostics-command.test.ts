@@ -52,8 +52,8 @@ describe('answer diagnose-recall cli', () => {
       process.exitCode = undefined;
       console.log = (...args: any[]) => chunks.push(args.join(' '));
       runAnswerCommand(null, ['diagnose-recall', '--from-recall-json', path, '--json'])
-        .then(() => { console.log = orig; process.exitCode = origExitCode ?? 0; resolve(chunks.join('\n')); })
-        .catch(err => { console.log = orig; process.exitCode = origExitCode ?? 0; reject(err); });
+        .then(() => { console.log = orig; process.exitCode = origExitCode; resolve(chunks.join('\n')); })
+        .catch(err => { console.log = orig; process.exitCode = origExitCode; reject(err); });
     });
 
     const parsed = JSON.parse(out);

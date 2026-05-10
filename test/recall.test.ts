@@ -6,6 +6,7 @@ import { runRecallCommand } from '../src/commands/recall.ts';
 
 const world8Slug = 'sources/chatgpt/full-export-all/2025-12-24-analysis-of-project-options-690b6edf';
 const citadelSlug = 'sources/chatgpt/full-export-all/2025-05-05-unshackled-mode-exit-6812c3bd';
+const derivedSlug = 'sources/derived/notes';
 
 const pages = new Map<string, any>([
   [world8Slug, {
@@ -32,6 +33,18 @@ The initial Citadel idea was to build a fortress-like agent operating base.
 We moved away from Citadel because it was too static and bunker-like.
 The better direction was a living memory system that can evolve with source-backed recall.`,
     timeline: '2025-05-05 — Citadel parked in favor of living memory',
+  }],
+  [derivedSlug, {
+    slug: derivedSlug,
+    source_id: 'default',
+    title: 'Derived Notes',
+    compiled_truth: `### USER
+Some derived notes that are not part of full-export-all lineage.
+
+### ASSISTANT
+This should be filtered out by strict show-genesis mode.
+`,
+    timeline: '2026-01-01 — Derived notes fixture',
   }],
 ]);
 
@@ -143,15 +156,49 @@ describe('recall evidence MVP', () => {
   });
 
   test('recall CLI emits JSON evidence and sets exitCode=2 only on abstain', async () => {
+    process.exitCode = undefined;
     const engine = fakeEngine((query) => query.includes('Citadel')
       ? [result(citadelSlug, 'We moved away from Citadel because it was too static and bunker-like.', 0.87)]
       : []);
 
-    const stdout = await captureStdout(() => runRecallCommand(engine, ['why', 'Citadel', '--quotes', '--json', '--before', '0', '--after', '0']));
+    const stdout = await captureStdout(() => runRecallCommand(engine, ['why', 'Citadel', '--json', '--before', '0', '--after', '0']));
     const payload = JSON.parse(stdout);
 
-    expect(payload.status).toBe('hit');
-    expect(payload.evidence[0].span_id).toMatch(/^gbs1:default:/);
+    expect(payload.result.status).toBe('hit');
+    expect(payload.result.evidence[0].span_id).toMatch(/^gbs1:default:/);
     expect(process.exitCode).toBeUndefined();
+  });
+
+  test('recall strict --timeline cannot silently fallback and returns abstain', async () => {
+    process.exitCode = undefined;
+    const engine = fakeEngine(() => [result(citadelSlug, 'Timeline is not part of recall test payload', 0.86)]);
+
+    const stdout = await captureStdout(() => runRecallCommand(
+      engine,
+      ['Citadel', 'initial', 'idea', '--timeline', '--json', '--before', '0', '--after', '0'],
+    ));
+    const payload = JSON.parse(stdout);
+
+    expect(payload.result.status).toBe('abstain');
+    expect(payload.result.evidence).toHaveLength(0);
+    expect(payload.result.integration.search_source).toBe('none');
+    expect(payload.result.warnings.join(' ')).toContain('strict recall flags removed');
+    expect([undefined, 2]).toContain(process.exitCode);
+  });
+
+  test('recall strict --show-genesis filters non-genesis hits out of output', async () => {
+    process.exitCode = undefined;
+    const engine = fakeEngine(() => [result(derivedSlug, 'This is not a full-export-all source', 0.84)]);
+
+    const strictStdout = await captureStdout(() => runRecallCommand(
+      engine,
+      ['notes', 'summary', '--show-genesis', '--json', '--before', '0', '--after', '0'],
+    ));
+    const strictPayload = JSON.parse(strictStdout);
+
+    expect(strictPayload.result.status).toBe('abstain');
+    expect(strictPayload.result.evidence).toHaveLength(0);
+    expect(strictPayload.result.integration.search_source).toBe('none');
+    expect([undefined, 2]).toContain(process.exitCode);
   });
 });

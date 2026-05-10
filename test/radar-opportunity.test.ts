@@ -2,7 +2,7 @@ import { describe, expect, test } from 'bun:test';
 import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
-import { candidateFromScoutSignal, opportunityReportJson } from '../src/core/radar/opportunity.ts';
+import { candidateFromScoutSignal, evaluateScoutRadarCandidates, opportunityReportJson } from '../src/core/radar/opportunity.ts';
 import { buildScoutSignalFromSource, scoutRecipeById } from '../src/core/scout/pipeline.ts';
 import { runRadarCommand } from '../src/commands/radar.ts';
 
@@ -49,6 +49,34 @@ describe('opportunity radar', () => {
 
     expect(weak.score_breakdown.distraction_penalty).toBeGreaterThan(strong.score_breakdown.distraction_penalty);
     expect(strong.opportunity_score).toBeGreaterThan(weak.opportunity_score);
+  });
+
+  test('scout/radar evaluation measures useful rate, false urgency, duplicates, stale sources, citations, and conversion', () => {
+    const candidates = [
+      candidateFromScoutSignal(signal({ id: 'sig-useful', urgency_score: 0.8, published_at: '2026-05-08' }), { active_bets: ['sovereign AI'] }),
+      candidateFromScoutSignal(signal({ id: 'sig-converted', urgency_score: 0.4, published_at: '2026-05-07' }), { active_bets: ['sovereign AI'] }),
+    ];
+    const report = evaluateScoutRadarCandidates(candidates, [
+      { scout_signal_id: 'sig-useful', useful: true, false_urgency: false, stale_source: false, action_converted: false },
+      { scout_signal_id: 'sig-converted', useful: true, false_urgency: false, stale_source: false, action_converted: true },
+    ]);
+
+    expect(report.schema).toBe('gbrain.radar.scout_evaluation.v1');
+    expect(report.useful_surfacing_rate).toBe(1);
+    expect(report.false_urgency_rate).toBe(0);
+    expect(report.duplicate_rate).toBe(0);
+    expect(report.stale_source_rate).toBe(0);
+    expect(report.public_citation_coverage).toBe(1);
+    expect(report.action_conversion_rate).toBe(0.5);
+    expect(report.passed).toBe(true);
+
+    const bad = evaluateScoutRadarCandidates(candidates, [
+      { scout_signal_id: 'sig-useful', useful: false, false_urgency: true, duplicate_of: 'older', stale_source: true, public_citation_present: false, action_converted: false },
+      { scout_signal_id: 'sig-converted', useful: true, false_urgency: false, stale_source: false, action_converted: false },
+    ]);
+    expect(bad.passed).toBe(false);
+    expect(bad.false_urgency_rate).toBeGreaterThan(0);
+    expect(bad.duplicate_rate).toBeGreaterThan(0);
   });
 
   test('CLI creates dry-run JSON and writes only with --yes', async () => {

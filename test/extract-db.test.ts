@@ -174,6 +174,42 @@ describe('gbrain extract timeline --source db', () => {
     expect(entries.length).toBe(1);
   });
 
+  test('self-heals missing timeline dedup index before ON CONFLICT writes', async () => {
+    await (engine as any).db.exec('DROP INDEX IF EXISTS idx_timeline_dedup');
+    await engine.putPage('people/alice', {
+      type: 'person', title: 'Alice', compiled_truth: '',
+      timeline: '- **2026-01-15** | Index self-heal event',
+    });
+
+    await runExtract(engine, ['timeline', '--source', 'db']);
+
+    const entries = await engine.getTimeline('people/alice');
+    expect(entries.length).toBe(1);
+    const idx = await (engine as any).db.query(
+      `SELECT indexname FROM pg_indexes WHERE tablename = 'timeline_entries' AND indexname = 'idx_timeline_dedup'`,
+    );
+    expect(idx.rows.length).toBe(1);
+  });
+
+  test('self-heals wrong-shape timeline dedup index before ON CONFLICT writes', async () => {
+    await (engine as any).db.exec('DROP INDEX IF EXISTS idx_timeline_dedup');
+    await (engine as any).db.exec('CREATE INDEX idx_timeline_dedup ON timeline_entries(page_id, date)');
+    await engine.putPage('people/alice', {
+      type: 'person', title: 'Alice', compiled_truth: '',
+      timeline: '- **2026-01-15** | Wrong index shape event',
+    });
+
+    await runExtract(engine, ['timeline', '--source', 'db']);
+
+    const entries = await engine.getTimeline('people/alice');
+    expect(entries.length).toBe(1);
+    const idx = await (engine as any).db.query(
+      `SELECT indexdef FROM pg_indexes WHERE tablename = 'timeline_entries' AND indexname = 'idx_timeline_dedup'`,
+    );
+    expect(idx.rows[0].indexdef).toContain('UNIQUE INDEX');
+    expect(idx.rows[0].indexdef).toContain('(page_id, date, summary)');
+  });
+
   test('skips invalid dates', async () => {
     await engine.putPage('people/alice', {
       type: 'person', title: 'Alice', compiled_truth: '',

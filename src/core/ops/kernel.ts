@@ -70,8 +70,18 @@ export interface OpsWorkItem {
   priority: number;
   lane: string;
   lanes?: string[];
+  model_lane?: string;
+  worker_profile_id?: string;
   worker_kind: WorkerKind;
   privacy_tier: PrivacyTier;
+  context_pack_required?: boolean;
+  context_pack_id?: string;
+  context_pack_path?: string;
+  context_pack_status?: string;
+  output_contract_required?: boolean;
+  output_contract_id?: string;
+  output_contract_path?: string;
+  completion_json_path?: string;
   source_refs: unknown[];
   dependencies: string[];
   acceptance_criteria: unknown[];
@@ -667,8 +677,18 @@ export function normalizeWorkItem(input: unknown, existing: OpsState, now?: Date
     priority: numberOr(input.priority, 50),
     lane: String(input.lane || lanes[0] || 'general'),
     lanes: lanes.length ? lanes : undefined,
+    model_lane: typeof input.model_lane === 'string' ? input.model_lane : undefined,
+    worker_profile_id: typeof input.worker_profile_id === 'string' ? input.worker_profile_id : undefined,
     worker_kind: String(input.worker_kind || 'subagent'),
     privacy_tier: String(input.privacy_tier || 'P2'),
+    context_pack_required: input.context_pack_required === true ? true : undefined,
+    context_pack_id: typeof input.context_pack_id === 'string' ? input.context_pack_id : undefined,
+    context_pack_path: typeof input.context_pack_path === 'string' ? input.context_pack_path : undefined,
+    context_pack_status: typeof input.context_pack_status === 'string' ? input.context_pack_status : undefined,
+    output_contract_required: input.output_contract_required === true ? true : undefined,
+    output_contract_id: typeof input.output_contract_id === 'string' ? input.output_contract_id : undefined,
+    output_contract_path: typeof input.output_contract_path === 'string' ? input.output_contract_path : undefined,
+    completion_json_path: typeof input.completion_json_path === 'string' ? input.completion_json_path : undefined,
     source_refs: array(input.source_refs),
     dependencies,
     acceptance_criteria: array(input.acceptance_criteria),
@@ -1120,6 +1140,7 @@ export function defaultWorkerProfiles(): OpsWorkerProfile[] {
       task_types: ['private_extraction', 'extraction'],
       max_concurrency: 2,
       daily_task_budget: 100000,
+      metadata: { allowed_model_lanes: ['mlx_qwen_private', 'local_private', 'private_extraction', 'memory_extraction', 'extraction'], requires_context_pack: true, requires_output_contract: true },
     }),
     normalizeWorkerProfile({
       id: 'minimax-public-scout',
@@ -1134,6 +1155,7 @@ export function defaultWorkerProfiles(): OpsWorkerProfile[] {
       max_concurrency: 20,
       daily_task_budget: 5000,
       daily_call_budget: 5000,
+      metadata: { allowed_model_lanes: ['minimax_public_cloud', 'public_scout', 'world_scout', 'scout', 'research'], requires_context_pack: true, requires_output_contract: true },
     }),
     normalizeWorkerProfile({
       id: 'codex-pr-engineer',
@@ -1147,6 +1169,7 @@ export function defaultWorkerProfiles(): OpsWorkerProfile[] {
       task_types: ['code_pr', 'code'],
       max_concurrency: 2,
       daily_task_budget: 20,
+      metadata: { allowed_model_lanes: ['codex_code', 'acp_codex', 'code_pr', 'code', 'pr', 'engineering'], requires_context_pack: true, requires_output_contract: true },
     }),
     normalizeWorkerProfile({
       id: 'claude-reviewer',
@@ -1159,6 +1182,7 @@ export function defaultWorkerProfiles(): OpsWorkerProfile[] {
       task_types: ['review'],
       max_concurrency: 1,
       daily_task_budget: 10,
+      metadata: { allowed_model_lanes: ['claude_code_review', 'review', 'code_review', 'architecture_review'], requires_context_pack: true, requires_output_contract: true },
     }),
   ];
 }
@@ -1786,12 +1810,97 @@ function assertRouteAllowedForWork(item: OpsWorkItem, provider?: string, model?:
   if (error) throw new Error(`route denied for ${item.id}: ${error}`);
 }
 
+function profileMetadataStringArray(profile: OpsWorkerProfile, key: string): string[] {
+  const value = profile.metadata?.[key];
+  return stringArray(value);
+}
+
+function profileAllowedModelLanes(profile: OpsWorkerProfile): string[] {
+  return [...stringArray((profile as unknown as Record<string, unknown>).allowed_model_lanes), ...profileMetadataStringArray(profile, 'allowed_model_lanes')];
+}
+
+function profileRequires(profile: OpsWorkerProfile, key: 'requires_context_pack' | 'requires_output_contract'): boolean {
+  return (profile as unknown as Record<string, unknown>)[key] === true || profile.metadata?.[key] === true;
+}
+
+function workItemRecord(item: OpsWorkItem): Record<string, unknown> {
+  return item as unknown as Record<string, unknown>;
+}
+
+function dispatchFailClosedRequired(item: OpsWorkItem): boolean {
+  const rec = workItemRecord(item);
+  const budget = object(item.budget);
+  return item.context_pack_required === true
+    || item.output_contract_required === true
+    || budget.fail_closed_dispatch === true
+    || budget.serious_work === true
+    || budget.strict_worker_routing === true
+    || typeof rec.context_pack_id === 'string'
+    || typeof rec.context_pack_path === 'string'
+    || typeof rec.output_contract_id === 'string'
+    || typeof rec.output_contract_path === 'string';
+}
+
+function requestedModelLane(item: OpsWorkItem): string {
+  return String(item.model_lane || item.lane || stringArray(item.lanes)[0] || item.worker_kind || '').trim();
+}
+
+function hasDispatchContextPack(item: OpsWorkItem): boolean {
+  const rec = workItemRecord(item);
+  return Boolean(rec.context_pack_path || rec.contextPackPath || rec.context_pack_id || rec.contextPackId || (rec.context_pack && isObject(rec.context_pack)) || (rec.contextPack && isObject(rec.contextPack)));
+}
+
+function hasDispatchOutputContract(item: OpsWorkItem): boolean {
+  const rec = workItemRecord(item);
+  return Boolean(rec.output_contract_path || rec.outputContractPath || rec.output_contract_id || rec.outputContractId || (rec.output_contract && isObject(rec.output_contract)) || (rec.outputContract && isObject(rec.outputContract)) || (rec.completion_contract && isObject(rec.completion_contract)) || (rec.completionContract && isObject(rec.completionContract)) || rec.completion_json_path);
+}
+
+function failClosedRouteError(item: OpsWorkItem, profile?: OpsWorkerProfile): string | undefined {
+  if (!dispatchFailClosedRequired(item)) return undefined;
+  if (!profile) return 'no worker profile available for fail-closed WorkItem';
+  if (!profile.allowed_privacy_tiers.length) return `${profile.id} missing allowed_privacy_tiers`;
+  if (!profileAllowedModelLanes(profile).length) return `${profile.id} missing metadata.allowed_model_lanes`;
+  if (!Number.isFinite(Number(profile.max_concurrency)) || Number(profile.max_concurrency) < 1) return `${profile.id} max_concurrency must be >= 1`;
+  if (!profileRequires(profile, 'requires_context_pack')) return `${profile.id} does not require ContextPack; profile is not dispatch-safe`;
+  if (!profileRequires(profile, 'requires_output_contract')) return `${profile.id} does not require OutputContract; profile is not dispatch-safe`;
+  const requested = requestedModelLane(item).toLowerCase();
+  const allowed = profileAllowedModelLanes(profile).map(s => s.toLowerCase());
+  const routedLane = String(item.lane || '').toLowerCase();
+  const routedKind = String(profile.worker_kind || item.worker_kind || '').toLowerCase();
+  if (requested && !allowed.includes(requested) && !allowed.includes(routedLane) && !allowed.includes(routedKind)) {
+    return `${profile.id} does not allow model lane ${requestedModelLane(item)}`;
+  }
+  if (!hasDispatchContextPack(item)) return 'missing ContextPack; no dispatch';
+  if (item.context_pack_required === true && item.context_pack_status !== 'validated') return `ContextPack status must be validated (got ${item.context_pack_status || 'missing'})`;
+  if (!hasDispatchOutputContract(item)) return 'missing OutputContract/completion contract; no dispatch';
+  return undefined;
+}
+
+function profileMatchesManualOverride(profile: OpsWorkerProfile, provider?: string, model?: string): boolean {
+  if (provider && profile.provider !== provider) return false;
+  if (model && profile.model !== model) return false;
+  return true;
+}
+
 export function selectWorkerRoute(item: OpsWorkItem, state: OpsState, opts: { now?: Date; provider?: string; model?: string } = {}): OpsWorkerRouteDecision {
+  const failClosed = dispatchFailClosedRequired(item);
   if (opts.provider || opts.model) {
-    assertRouteAllowedForWork(item, opts.provider, opts.model, item.worker_kind, isMiniMaxRoute(opts.provider, opts.model, item.worker_kind));
+    const matchingProfiles = state.worker_profiles.filter(p => profileMatchesManualOverride(p, opts.provider, opts.model));
+    const profile = item.worker_profile_id ? matchingProfiles.find(p => p.id === item.worker_profile_id) : matchingProfiles[0];
+    if (failClosed) {
+      if (!profile) {
+        return { status: 'denied', work_item_id: item.id, worker_kind: item.worker_kind, runtime: runtimeForWorkerKind(item.worker_kind), provider: opts.provider || String(item.budget.provider || 'local'), model: opts.model || (typeof item.budget.model === 'string' ? item.budget.model : undefined), reason: 'manual provider/model override has no matching worker profile; no dispatch', skipped: [] };
+      }
+      const error = failClosedRouteError(item, profile);
+      if (error) {
+        return { status: 'denied', work_item_id: item.id, worker_profile_id: profile.id, worker_kind: profile.worker_kind, runtime: profile.runtime, provider: profile.provider, model: profile.model, reason: error, skipped: [{ worker_profile_id: profile.id, reason: error }] };
+      }
+    }
+    assertRouteAllowedForWork(item, opts.provider, opts.model, profile?.worker_kind || item.worker_kind, profile?.public_cloud ?? isMiniMaxRoute(opts.provider, opts.model, item.worker_kind));
     return {
       status: 'legacy',
       work_item_id: item.id,
+      worker_profile_id: profile?.id,
       worker_kind: item.worker_kind,
       runtime: runtimeForWorkerKind(item.worker_kind),
       provider: opts.provider || String(item.budget.provider || 'local'),
@@ -1803,6 +1912,9 @@ export function selectWorkerRoute(item: OpsWorkItem, state: OpsState, opts: { no
 
   const profiles = state.worker_profiles;
   if (!profiles.length) {
+    if (failClosed) {
+      return { status: 'denied', work_item_id: item.id, worker_kind: item.worker_kind, runtime: runtimeForWorkerKind(item.worker_kind), provider: legacyProviderForWorkerKind(item.worker_kind), model: legacyModelForWorkerKind(item.worker_kind, legacyProviderForWorkerKind(item.worker_kind)), reason: 'no synced worker profiles; fail-closed WorkItem cannot use legacy route', skipped: [] };
+    }
     const budget = object(item.budget);
     const provider = typeof budget.provider === 'string' ? budget.provider : legacyProviderForWorkerKind(item.worker_kind);
     const model = typeof budget.model === 'string' ? budget.model : legacyModelForWorkerKind(item.worker_kind, provider);
@@ -1817,9 +1929,18 @@ export function selectWorkerRoute(item: OpsWorkItem, state: OpsState, opts: { no
   const held: Array<{ profile: OpsWorkerProfile; budget: NonNullable<OpsWorkerRouteDecision['budget']>; reason: string }> = [];
 
   for (const { profile } of scored) {
+    if (item.worker_profile_id && profile.id !== item.worker_profile_id) {
+      skipped.push({ worker_profile_id: profile.id, reason: `requested worker_profile_id ${item.worker_profile_id}` });
+      continue;
+    }
     const privacy = normalizedPrivacyTier(item.privacy_tier);
     if (profile.allowed_privacy_tiers.length && !profile.allowed_privacy_tiers.map(normalizedPrivacyTier).includes(privacy)) {
       skipped.push({ worker_profile_id: profile.id, reason: `privacy tier ${privacy} not allowed` });
+      continue;
+    }
+    const failClosedError = failClosedRouteError(item, profile);
+    if (failClosedError) {
+      skipped.push({ worker_profile_id: profile.id, reason: failClosedError });
       continue;
     }
     const policyError = routePolicyError(item, profile.provider, profile.model, profile.worker_kind, profile.public_cloud);
@@ -1863,9 +1984,11 @@ function workerProfileScore(profile: OpsWorkerProfile, item: OpsWorkItem): numbe
   const title = `${item.title} ${item.description}`.toLowerCase();
   const taskTypes = profile.task_types.map(s => s.toLowerCase());
   const preferred = profile.preferred_lanes.map(s => s.toLowerCase());
+  const allowedModelLanes = profileAllowedModelLanes(profile).map(s => s.toLowerCase());
   let score = 0;
   if (profile.worker_kind.toLowerCase() === kind || profileId === kind) score += 100;
   if (preferred.some(l => lanes.includes(l))) score += 50;
+  if (allowedModelLanes.some(l => lanes.includes(l) || l === kind)) score += 60;
   if (taskTypes.some(t => lanes.includes(t) || title.includes(t.replace(/_/g, ' ')))) score += 30;
   const isPublicScout = normalizedPrivacyTier(item.privacy_tier) === 'P3' && (lanes.some(l => ['scout', 'public_scout', 'world_scout', 'research'].includes(l)) || title.includes('public scout'));
   if (isPublicScout && isMiniMaxRoute(profile.provider, profile.model, profile.worker_kind)) score += 120;

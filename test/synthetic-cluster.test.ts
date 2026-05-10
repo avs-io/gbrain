@@ -2,7 +2,7 @@ import { describe, test, expect } from 'bun:test';
 import { mkdtempSync, writeFileSync, rmSync, readFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
-import { generateClusteredEvalCases } from '../src/core/synthetic/cluster-factory.ts';
+import { generateClusteredEvalCases, generateHighValueClusterQueryCorpus, HIGH_VALUE_CLUSTER_SHAPES } from '../src/core/synthetic/cluster-factory.ts';
 import { runSyntheticCommand } from '../src/commands/synthetic.ts';
 
 describe('clustered synthetic eval generation', () => {
@@ -26,6 +26,17 @@ describe('clustered synthetic eval generation', () => {
 
   test('rejects non-gbs1 spans', () => {
     expect(() => generateClusteredEvalCases({ spans: [{ span_id: 'syn:1', quote: 'x' }], topic: 'x' })).toThrow(/synthetic spans are not allowed/i);
+  });
+
+  test('high-value cluster corpus emits 20-100 mandated query variants and remains non-memory', () => {
+    const cases = generateHighValueClusterQueryCorpus({ spans, topic: 'alpha beta', count: 20 });
+    expect(cases).toHaveLength(20);
+    expect(new Set(cases.map(c => c.query_shape))).toEqual(new Set(HIGH_VALUE_CLUSTER_SHAPES));
+    expect(cases.every(c => c.eligible_for_memory === false && c.eval_only === true)).toBe(true);
+    expect(cases.some(c => c.expected_abstain && c.expected_claim_ids.length === 0)).toBe(true);
+    expect(cases.map(c => c.query).join('\n')).toContain('source-backed');
+    expect(cases.map(c => c.query).join('\n')).toContain('हमें');
+    expect(() => generateHighValueClusterQueryCorpus({ spans, topic: 'too few', count: 19 })).toThrow(/20-100/);
   });
 
   test('CLI writes JSONL only with --yes', async () => {

@@ -1,0 +1,14 @@
+{
+  "timestamp": "2026-05-10T19:43:09.344Z",
+  "period": {
+    "from": "2026-05-09T19:43:09.344Z",
+    "to": "2026-05-10T19:43:09.344Z"
+  },
+  "pages_checked": 0,
+  "pages_clean": 0,
+  "pages_with_issues": 0,
+  "critical_issues": 0,
+  "summaries": [],
+  "issues_by_page": [],
+  "error": "Failed to get recent pages: gbrain list failed: [ai.gateway] recipe \"google\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps.\n[ai.gateway] recipe \"ollama\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps.\n[ai.gateway] recipe \"litellm\" declares an embedding touchpoint without max_batch_tokens; recursion is the only safety net for batch caps."
+}

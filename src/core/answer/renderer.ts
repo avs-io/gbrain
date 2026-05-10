@@ -8,10 +8,22 @@ export interface RenderedAnswer {
   citations: Array<CitationRef & { evidenceId: string; source: EvidenceWindow['source'] }>;
 }
 
-function citationLabel(claim: ClaimAtom): string {
-  if (claim.citations.length === 0) return '';
-  const labels = [...new Set(claim.citations.map(c => c.label))];
+function citationLabelForRefs(citations: CitationRef[]): string {
+  if (citations.length === 0) return '';
+  const labels = [...new Set(citations.map(c => c.label))];
   return ` [${labels.join(', ')}]`;
+}
+
+function citationLabel(claim: ClaimAtom): string {
+  return citationLabelForRefs(claim.citations);
+}
+
+function citedClaimText(claim: ClaimAtom): string {
+  const label = citationLabel(claim);
+  if (!claim.factual || !label) return claim.text;
+  const parts = claim.text.split(/(?<=[.!?])\s+(?=[A-Z0-9"'“])/).map(part => part.trim()).filter(Boolean);
+  if (parts.length <= 1) return `${claim.text}${label}`;
+  return parts.map(part => `${part}${label}`).join(' ');
 }
 
 function buildCitationIndex(claims: ClaimAtom[], evidence: EvidenceWindow[]): Array<CitationRef & { evidenceId: string; source: EvidenceWindow['source'] }> {
@@ -79,7 +91,11 @@ export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSig
     lines.push('', `${cluster.title}:`);
     for (const claim of clusterClaims) {
       claimIdsWithRenderableText.add(claim.id);
-      lines.push(`- ${claim.text}${citationLabel(claim)}`);
+      if (claim.listItems && claim.listItems.length > 0) {
+        for (const item of claim.listItems) lines.push(`- ${item.text}${citationLabelForRefs(item.citations)}`);
+      } else {
+        lines.push(`- ${citedClaimText(claim)}`);
+      }
     }
   }
 
@@ -95,7 +111,11 @@ export function renderDeterministicAnswer(claims: ClaimAtom[], clusters: SlotSig
       lines.push('', 'Other supported evidence:');
     }
     section.claimIds.push(renderableClaim.id);
-    lines.push(`- ${renderableClaim.text}${citationLabel(renderableClaim)}`);
+    if (renderableClaim.listItems && renderableClaim.listItems.length > 0) {
+      for (const item of renderableClaim.listItems) lines.push(`- ${item.text}${citationLabelForRefs(item.citations)}`);
+    } else {
+      lines.push(`- ${citedClaimText(renderableClaim)}`);
+    }
   }
 
   if (missingSlots.length > 0) {

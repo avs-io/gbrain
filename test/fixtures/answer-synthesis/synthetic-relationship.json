@@ -1,0 +1,48 @@
+{
+  "id": "synthetic_relationship",
+  "query": "What was my relationship with Person Alpha like, and what friction incidents existed?",
+  "expectedShapeId": "relationship_recall",
+  "requiredSlots": ["relationship_frame"],
+  "minClaimsBySlot": {
+    "relationship_frame": 1,
+    "incidents": 1
+  },
+  "prohibitedRegex": ["Person Beta"],
+  "removeEvidenceCases": [],
+  "recall": {
+    "query": "What was my relationship with Person Alpha like, and what friction incidents existed?",
+    "status": "hit",
+    "warnings": [],
+    "integration": { "search_source": "direct" },
+    "evidence": [
+      {
+        "span_id": "gbs1:default:sources/test/person-alpha#compiled_truth:L1-L3",
+        "source_id": "default",
+        "slug": "sources/test/person-alpha",
+        "title": "Person Alpha",
+        "section": "compiled_truth",
+        "start_line": 1,
+        "end_line": 3,
+        "quote": "Person Alpha placed trust in me and shaped my rigor. There was also high friction around weekend work expectations and time-policing.",
+        "quote_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.95
+      },
+      {
+        "span_id": "gbs1:default:sources/test/person-beta#compiled_truth:L1-L2",
+        "source_id": "default",
+        "slug": "sources/test/person-beta",
+        "title": "Person Beta",
+        "section": "compiled_truth",
+        "start_line": 1,
+        "end_line": 2,
+        "quote": "Person Beta had no relation to this question.",
+        "quote_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.8
+      }
+    ]
+  }
+}

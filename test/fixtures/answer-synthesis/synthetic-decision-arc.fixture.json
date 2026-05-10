@@ -1,0 +1,21 @@
+{
+  "id": "synthetic_decision_arc",
+  "query": "What was the idea before Project Atlas and why was Project Atlas not pursued?",
+  "recallJsonPath": "gbrain/test/fixtures/answer-synthesis/synthetic-decision-arc.recall.json",
+  "expectedShapeId": "decision_arc",
+  "requiredSlots": ["decision_or_shift", "rationale"],
+  "minClaimsBySlot": {
+    "decision_or_shift": 1,
+    "rationale": 1
+  },
+  "mustCiteAllClaims": true,
+  "prohibitedRegex": ["Green tea"],
+  "removeEvidenceCases": [
+    {
+      "id": "remove_project_atlas_support",
+      "removeWindowIds": ["gbs1:default:sources/test/project-atlas#compiled_truth:L1-L3"],
+      "expectedMissingSlots": ["decision_or_shift", "rationale"],
+      "prohibitedRegex": ["Bridge Layer", "low distribution leverage"]
+    }
+  ]
+}

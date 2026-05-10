@@ -1,0 +1,10 @@
+{
+  "schema": "gbrain.recall_pr2_baseline_failures.v1",
+  "failing_case_ids": [
+    "avs-pr2-004-eonic-current-not-dormant",
+    "avs-pr2-009-unrelated-health-abstain",
+    "avs-pr2-010-fake-person-abstain",
+    "avs-pr2-011-current-strategy-disambiguation"
+  ],
+  "protocol": "baseline run must preserve known failures before fix; post-fix run must satisfy all metrics"
+}

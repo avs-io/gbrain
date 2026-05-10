@@ -149,8 +149,8 @@ topic_tracks:
       daily_state: true
       weekly_deep_synthesis: true
     budgets:
-      minimax_calls_per_day: 5000
-      max_sources_per_day: 1000
+      minimax_calls_per_day: 10000
+      max_sources_per_day: 1500
       max_interrupts_per_day: 3
       max_external_fetches: 0
     lanes:
@@ -179,3 +179,223 @@ topic_tracks:
       can_create_world_claim_proposals: true
       can_mutate_trusted_memory: false
       can_contact_people: false
+  - id: world-eonic-health-intelligence
+    slug: eonic-health-intelligence
+    tier: T1
+    recipe_slug: eonic-health-intelligence
+    program_id: world-eonic-health-intelligence
+    title: Eonic Health Intelligence
+    status: active
+    priority: 86
+    objective: Maintain review-only public-world intelligence on Eonic's health-intelligence thesis, supplement/protocol wedge, India preventive-health market signals, safety posture, and partnership guardrails.
+    why_it_matters_to_chief: Eonic is a live venture decision surface for Chief; category, regulatory, competitor, pilot, and partner signals can change whether to build a manual cohort, how to frame the product, and how to protect the intelligence layer from becoming a commodity supplement brand.
+    decision_surfaces:
+      - Eonic manual pilot readiness review
+      - supplement and protocol safety review
+      - Sanath and Deep Holistics partnership guardrails
+      - India health-intelligence competitive radar
+      - founder decision brief for build or pause
+    standing_questions:
+      - What public-market or competitor signal changes Eonic's protocol-intelligence thesis?
+      - Which India-specific health, supplement, diagnostics, wearable, or longevity signals create a sharper wedge or timing risk?
+      - What regulatory, claims, safety, contraindication, or clinical-governance issue must be reviewed before any Eonic pilot or brief?
+      - What evidence supports or weakens the manual WhatsApp concierge pilot as the next truth-machine?
+      - What partnership terms or Sanath and Deep Holistics dependencies could protect or endanger Eonic's brand, user relationship, data learning loop, and protocol engine?
+    seed_queries:
+      - India AI health agent supplements protocol intelligence longevity wellness
+      - India precision nutrition longevity clinic supplement personalization FSSAI
+      - Oura Galen AI personal health companion labs wearable records
+      - Function Health medical intelligence lab protocol AI health
+      - Healthify Ria India AI health coach persistent memory
+      - HyugaLife AI personalisation supplement trust lab reports India
+      - Biopeak India longevity diagnostics AI preventive health
+      - FSSAI health supplements nutraceuticals regulations claims India
+    watch_entities:
+      - Eonic
+      - Sanath
+      - Deep Holistics
+      - Function Health
+      - Oura
+      - Galen AI
+      - Healthify
+      - Biopeak
+      - HyugaLife
+      - Project Serotonin
+      - Humanedge Essentials
+      - FSSAI
+      - Ultrahuman
+      - Levels
+      - Viome
+      - ZOE
+      - InsideTracker
+    source_classes:
+      - company_announcement
+      - regulatory_guidance
+      - news
+      - market_signal
+      - clinical_safety_signal
+      - competitor_product_update
+      - partnership_signal
+      - pilot_design_evidence
+      - public_social_signal
+    source_targets:
+      - id: fssai-health-supplements
+        source_class: regulatory_guidance
+        label: FSSAI health supplements and nutraceuticals guidance
+        url: https://fssai.gov.in/cms/health-supplements.php
+        authority_tier: primary
+        fetch_policy: manual
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: oura-galen-ai
+        source_class: company_announcement
+        label: Oura Galen AI connected-health announcement
+        url: https://ouraring.com/blog/oura-acquires-galen-ai/
+        authority_tier: primary
+        fetch_policy: manual
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: function-health-medical-intelligence
+        source_class: competitor_product_update
+        label: Function Health medical intelligence signal
+        query: Function Health Medical Intelligence Lab labs wearables records protocols AI
+        authority_tier: medium
+        fetch_policy: search
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: healthify-ria-india-ai-coach
+        source_class: competitor_product_update
+        label: Healthify Ria India AI coach signal
+        query: Healthify Ria real time AI health coach India persistent memory
+        authority_tier: medium
+        fetch_policy: search
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: india-longevity-and-supplement-trust
+        source_class: market_signal
+        label: India longevity clinic and supplement trust radar
+        query: Biopeak HyugaLife Project Serotonin Humanedge Essentials India longevity supplements AI personalisation
+        authority_tier: medium
+        fetch_policy: search
+        robots_required: true
+        max_fetches_per_day: 0
+      - id: public-social-disabled-eonic
+        source_class: social_signal
+        label: Public social signals disabled until explicit source authorization
+        query: Eonic health intelligence protocol memory supplements India longevity
+        authority_tier: low
+        fetch_policy: disabled
+        robots_required: true
+        max_fetches_per_day: 0
+    extraction_targets:
+      - entities
+      - claims
+      - events
+      - dates
+      - decisions
+      - product_primitives
+      - protocol_memory_signal
+      - regulatory_or_claims_risk
+      - safety_or_contraindication_signal
+      - competitor_positioning
+      - partnership_guardrail
+      - pilot_readiness_signal
+      - relevance_to_chief
+    research_plan:
+      maps:
+        venture:
+          - Eonic
+        partners:
+          - Sanath
+          - Deep Holistics
+        competitor_categories:
+          - AI health agents
+          - personalized supplements
+          - preventive diagnostics
+          - longevity clinics
+          - wearable and metabolic coaching
+          - protocol OS and adherence layer
+        public_entities:
+          - Function Health
+          - Oura
+          - Galen AI
+          - Healthify
+          - Biopeak
+          - HyugaLife
+          - Project Serotonin
+          - FSSAI
+        risk_surfaces:
+          - medical claims
+          - supplement safety
+          - contraindications
+          - user data and derived intelligence ownership
+          - partner enclosure
+          - commodity supplement positioning
+      discovery_queries:
+        - India AI health agent supplements protocol intelligence longevity wellness
+        - India precision nutrition longevity clinic supplement personalization FSSAI
+        - Oura Galen AI personal health companion labs wearable records
+        - Function Health medical intelligence lab protocol AI health
+        - Healthify Ria India AI health coach persistent memory
+        - HyugaLife AI personalisation supplement trust lab reports India
+        - Biopeak India longevity diagnostics AI preventive health
+        - FSSAI health supplements nutraceuticals regulations claims India
+      extraction_targets:
+        - claim
+        - entity
+        - event
+        - problem_signal
+        - opportunity_signal
+        - contradiction
+        - safety_signal
+        - regulatory_signal
+        - partnership_signal
+      opportunity_lenses:
+        - manual WhatsApp concierge pilot timing
+        - protocol memory and adherence intelligence moat
+        - India-specific trust and metabolic-health wedge
+        - supplement claims and safety governance
+        - Sanath or Deep Holistics partnership structure
+        - competitor positioning drift away from commodity supplements
+    cadence:
+      discovery_hours: 12
+      delta_compile_hours: 24
+      weekly_deep_synthesis: true
+      interrupt_only_if_review_ready: true
+    budgets:
+      minimax_calls_per_day: 3000
+      max_sources_per_day: 250
+      max_interrupts_per_day: 1
+      max_external_fetches: 0
+    lanes:
+      privacy_tier: P3_PUBLIC
+      namespace: world
+      model_lanes:
+        - minimax-public-regular
+      worker_lanes:
+        - public_discovery
+        - public_fetch
+        - world_extraction
+        - topic_reduce
+        - opportunity_scoring
+    approval_gates:
+      - external_message_send
+      - trusted_memory_mutation
+      - live_web_fetch_budget_increase
+      - private_or_personal_source_ingestion
+      - medical_or_supplement_claim_before_brief
+      - clinician_review_before_pilot_recommendation
+      - partner_outreach_or_sanath_contact
+    success_metrics:
+      - Review-only topic state exists with public source refs and no trusted-memory mutation.
+      - Eonic public-world deltas are separated from private GBrain memory and marked P3_PUBLIC.
+      - Any pilot, supplement, medical, or partnership recommendation names its approval gate before surfacing as action.
+      - Competitor and regulatory signals are reduced into claims, risks, opportunities, and contradictions instead of prose-only reports.
+      - Search and manual targets never create live fetch or external-send actions without explicit approval.
+    autonomy:
+      can_ingest_public_sources: true
+      can_create_world_claim_proposals: true
+      can_mutate_trusted_memory: false
+      can_contact_people: false
+      can_send_external_messages: false
+      review_only: true

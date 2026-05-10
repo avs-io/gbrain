@@ -1,10 +1,26 @@
 import type { AnswerShapeDef } from './synthesis-dsl.ts';
+import type { RequestedAspect } from './synthesis-dsl.ts';
 import type { EvidenceSignal, EvidenceSignalRole } from './evidence-classify.ts';
 
 export interface SlotSignalCluster {
   slotId: string;
   title: string;
   required: boolean;
+  aspects: RequestedAspect[];
+  groups: SlotSignalGroup[];
+  signals: EvidenceSignal[];
+}
+
+export interface SlotSignalGroupKey {
+  slotId: string;
+  normalizedEntityOrConcept: string;
+  sourceEpisode: string;
+  sourceDate: string;
+  role: EvidenceSignalRole;
+}
+
+export interface SlotSignalGroup {
+  key: SlotSignalGroupKey;
   signals: EvidenceSignal[];
 }
 
@@ -44,6 +60,52 @@ function dedupe(signals: EvidenceSignal[]): EvidenceSignal[] {
   return out;
 }
 
+function normalizedEntityOrConcept(signal: EvidenceSignal): string {
+  const stop = new Set(['and', 'the', 'what', 'why', 'when', 'who', 'how', 'did', 'was', 'were', 'direction', 'changed', 'change']);
+  const terms = signal.queryOverlapTerms
+    .map(normalizeText)
+    .filter(term => term.length > 1 && !stop.has(term))
+    .sort();
+  if (terms.length > 0) return [...new Set(terms)].join('+');
+  return 'unknown';
+}
+
+function sourceDate(signal: EvidenceSignal): string {
+  if (signal.sourceDate) return signal.sourceDate.slice(0, 10);
+  const fromEvidence = signal.evidenceId.match(/(?:^|[^0-9])((?:20|19)\d{2}-\d{2}-\d{2}|(?:20|19)\d{6})(?:[^0-9]|$)/);
+  if (!fromEvidence) return 'unknown';
+  const raw = fromEvidence[1];
+  return raw.includes('-') ? raw : `${raw.slice(0, 4)}-${raw.slice(4, 6)}-${raw.slice(6, 8)}`;
+}
+
+export function signalSlotGroupKey(signal: EvidenceSignal, slotId: string): SlotSignalGroupKey {
+  return {
+    slotId,
+    normalizedEntityOrConcept: normalizedEntityOrConcept(signal),
+    sourceEpisode: signal.sourceEpisode || signal.evidenceId.split('#')[0] || 'unknown',
+    sourceDate: sourceDate(signal),
+    role: signal.role,
+  };
+}
+
+function groupSignals(slotId: string, signals: EvidenceSignal[]): SlotSignalGroup[] {
+  const groups = new Map<string, SlotSignalGroup>();
+  for (const signal of signals) {
+    const key = signalSlotGroupKey(signal, slotId);
+    const encoded = JSON.stringify(key);
+    const existing = groups.get(encoded);
+    if (existing) existing.signals.push(signal);
+    else groups.set(encoded, { key, signals: [signal] });
+  }
+  return [...groups.values()].sort((a, b) =>
+    a.key.slotId.localeCompare(b.key.slotId)
+    || a.key.normalizedEntityOrConcept.localeCompare(b.key.normalizedEntityOrConcept)
+    || a.key.sourceEpisode.localeCompare(b.key.sourceEpisode)
+    || a.key.sourceDate.localeCompare(b.key.sourceDate)
+    || a.key.role.localeCompare(b.key.role)
+  );
+}
+
 export function signalFingerprint(signal: EvidenceSignal): string {
   return normalizeText(signal.text);
 }
@@ -54,7 +116,7 @@ function confidenceRank(signal: EvidenceSignal): number {
 
 function stableSignalSort(a: EvidenceSignal, b: EvidenceSignal): number {
   return confidenceRank(a) - confidenceRank(b)
-    || a.sourceOrder - b.sourceOrder
+    || a.evidenceId.localeCompare(b.evidenceId)
     || a.localOrder - b.localOrder
     || a.text.localeCompare(b.text);
 }
@@ -69,7 +131,7 @@ function slotSignalScore(signal: EvidenceSignal, slotId: string): number {
     if (signal.role === 'protocol_item') score += 8;
     if (signal.kind === 'list_item' || signal.kind === 'bullet') score += 4;
     if (/\b(?:,|;| and | with | plus )\b/i.test(signal.text)) score += 3;
-    if (/\b(?:why|because|due to|rationale|reason|fetal|maternal|clinical|operational|hb|fgr|ferritin|measurement|level|lab|window|score|count)\b/i.test(signal.text)) score -= 8;
+    if (/\b(?:why|because|due to|rationale|reason|fetal|maternal|clinical|operational|biomarker|measurement|marker|level|lab|window|score|count|growth)\b/i.test(signal.text)) score -= 8;
   }
   if (slotId === 'relationship_frame') {
     if (/\b(?:formative|trust|trusted|shaped|meaningful|support|helped|valued)\b/i.test(signal.text)) score += 5;
@@ -94,7 +156,8 @@ export function clusterSignalsBySlot(signals: EvidenceSignal[], shape: AnswerSha
       const slotScoreDiff = slotSignalScore(b, slot.id) - slotSignalScore(a, slot.id);
       return slotScoreDiff || stableSignalSort(a, b);
     });
-    return { slotId: slot.id, title: slot.title, required: slot.required, signals: dedupe(matched) };
+    const slotSignals = dedupe(matched);
+    return { slotId: slot.id, title: slot.title, required: slot.required, aspects: slot.aspects, groups: groupSignals(slot.id, matched), signals: slotSignals };
   });
 }
 

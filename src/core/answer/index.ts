@@ -10,3 +10,4 @@ export * from './signal-cluster.ts';
 export * from './claim-compiler.ts';
 export * from './renderer.ts';
 export * from './promotion-eval.ts';
+export * from './llm-synthesis-boundary.ts';

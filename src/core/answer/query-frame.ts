@@ -11,7 +11,7 @@ const ASPECT_PATTERNS: Array<[RequestedAspect, RegExp[]]> = [
   ['incidents', [/\bincident(?:s)?\b/, /\bexamples?\b/, /\bevents?\b/, /\bcase(?:s)?\b/, /\bfriction\b/]],
   ['rationale', [/\bwhy\b/, /\brationale\b/, /\breason(?:s)?\b/, /\bbecause\b/, /\bdriver(?:s)?\b/]],
   ['change', [/\bchange(?:d|s)?\b/, /\bshift(?:ed|s)?\b/, /\bmov(?:e|ed|ing)\b/, /\bevolv(?:e|ed|ing|ution)\b/, /\btransition(?:ed)?\b/, /\bnot pursued\b/, /\bdropped\b/]],
-  ['measurement', [/\bmeasurement(?:s)?\b/, /\bmetric(?:s)?\b/, /\bnumber(?:s)?\b/, /\bscore(?:s)?\b/, /\bcount(?:s)?\b/, /\b\d+(?:\.\d+)?\b/]],
+  ['measurement', [/\bmeasurement(?:s)?\b/, /\bmetric(?:s)?\b/, /\bnumber(?:s)?\b/, /\bscore(?:s)?\b/, /\bcount(?:s)?\b/, /\bmarker(?:s)?\b/, /\bbiomarker(?:s)?\b/, /\blab(?:s)?\b/, /\bferritin\b/, /\bhb\b/, /\b\d+(?:\.\d+)?\b/]],
   ['list_stack', [/\blist\b/, /\bstack\b/, /\bprotocol\b/, /\bregimen\b/, /\bsupplement(?:s)?\b/, /\btool(?:s|ing)?\b/, /\bitems?\b/]],
   ['relationship', [/\brelationship\b/, /\brelation\b/, /\bbetween\b/, /\bwith\b/]],
   ['current_state', [/\bcurrent(?:ly)?\b/, /\bnow\b/, /\btoday\b/, /\bpresent\b/, /\bstate now\b/]],
@@ -20,7 +20,7 @@ const ASPECT_PATTERNS: Array<[RequestedAspect, RegExp[]]> = [
 ];
 
 const STOP_ENTITIES = new Set([
-  'what', 'when', 'why', 'how', 'who', 'where', 'which', 'did', 'does', 'do', 'was', 'were', 'is', 'are', 'the', 'and', 'or', 'but', 'with', 'between', 'before', 'after', 'during', 'not', 'pursued', 'shift', 'change', 'relationship', 'incidents', 'timeline', 'stack', 'protocol', 'supplements', 'pregnancy', 'summary', 'define', 'current', 'prior', 'later', 'state', 'idea', 'like', 'from', 'into', 'about', 'context', 'reason', 'rationale'
+  'what', 'when', 'why', 'how', 'who', 'where', 'which', 'did', 'does', 'do', 'was', 'were', 'is', 'are', 'the', 'and', 'or', 'but', 'with', 'between', 'before', 'after', 'during', 'not', 'pursued', 'shift', 'change', 'relationship', 'incidents', 'timeline', 'stack', 'protocol', 'supplements', 'summary', 'define', 'current', 'prior', 'later', 'state', 'idea', 'like', 'from', 'into', 'about', 'context', 'reason', 'rationale'
 ]);
 
 function unique<T>(items: T[]): T[] {
@@ -46,6 +46,12 @@ function splitSubquestions(query: string): string[] {
   const questionParts = normalized.split(/\?+/).map(compact).filter(Boolean);
   const parts = questionParts.length > 1 ? questionParts : normalized.split(/\s+(?:and|also|plus)\s+(?=(?:what|when|why|how|which|who|where|did|was|were|is|are)\b)/i).map(compact).filter(Boolean);
   return parts.length > 0 ? parts : [normalized];
+}
+
+function detectPrivacyMode(query: string): QueryFrame['privacyMode'] {
+  return /\b(?:pregnan(?:cy|t)|medical|health|lab|ferritin|hb|family|kid|children|wife|finance|salary|personal|private|relationship|meeting|person)\b/i.test(query)
+    ? 'sensitive_personal'
+    : 'standard';
 }
 
 function pushEntity(entities: QueryEntity[], text: string, kind: QueryEntity['kind'], source: QueryEntity['source'] = 'query') {
@@ -95,6 +101,7 @@ export function buildQueryFrame(query: string, options: QueryFrameOptions = {}):
     requestedAspects,
     entities: extractQueryEntities(normalizedQuery, options),
     subquestions,
+    privacyMode: detectPrivacyMode(normalizedQuery),
     cues: {
       multiPart: subquestions.length > 1 || requestedAspects.length > 2,
       comparative: /\b(?:versus|vs\.?|between|instead of|rather than|not .* but|before .* after)\b/i.test(normalizedQuery),

@@ -78,5 +78,26 @@ describe('claim compiler', () => {
     expect(stack?.text).toContain('Phosphatidylcholine 2g');
     expect(stack?.text).toContain('Magnesium Glycinate');
     expect(stack?.text).toContain('Metformin');
+    expect(stack?.listItems?.length).toBe(1);
+    expect(stack?.listItems?.every(item => item.citations.length === 1)).toBe(true);
+    expect(validateClaimCitations(compiled.claims, evidence).ok).toBe(true);
+  });
+
+  test('keeps stack aggregate item-level citations tied to each supporting source', () => {
+    const frame = buildQueryFrame('What supplements were in the stack?');
+    const evidence = [
+      ev('h', 'Vitamin C 500mg and Folic acid 5mg.'),
+      ev('i', 'NAC 600mg and Magnesium Glycinate.'),
+    ];
+    const shape = selectAnswerShape(frame);
+    const clusters = clusterSignalsBySlot(classifyEvidenceSignals(evidence, frame), shape);
+    const compiled = compileClaims(clusters, evidence, frame, { maxQuoteChars: 320 });
+    const stack = compiled.claims.find(claim => claim.kind === 'list_aggregate');
+
+    expect(stack?.listItems?.map(item => item.citations.map(c => c.id))).toEqual([
+      [evidence[0].id],
+      [evidence[1].id],
+    ]);
+    expect(stack?.supportSignalIds?.length).toBe(stack?.listItems?.length);
   });
 });

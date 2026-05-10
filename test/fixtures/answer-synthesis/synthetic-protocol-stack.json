@@ -1,0 +1,55 @@
+{
+  "id": "synthetic_protocol_stack",
+  "query": "What supplements were in the protocol stack and what was ferritin?",
+  "expectedShapeId": "protocol_or_stack_change",
+  "requiredSlots": ["stack"],
+  "minClaimsBySlot": {
+    "stack": 1,
+    "measurement": 1
+  },
+  "prohibitedRegex": ["unrelated"],
+  "removeEvidenceCases": [
+    {
+      "id": "remove_stack",
+      "removeWindowIds": ["gbs1:default:sources/test/protocol-stack#compiled_truth:L1-L3"],
+      "expectedMissingSlots": ["stack"],
+      "prohibitedRegex": ["NMN 500mg", "NAC 600mg"]
+    }
+  ],
+  "recall": {
+    "query": "What supplements were in the protocol stack and what was ferritin?",
+    "status": "hit",
+    "warnings": [],
+    "integration": { "search_source": "direct" },
+    "evidence": [
+      {
+        "span_id": "gbs1:default:sources/test/protocol-stack#compiled_truth:L1-L3",
+        "source_id": "default",
+        "slug": "sources/test/protocol-stack",
+        "title": "Protocol Stack",
+        "section": "compiled_truth",
+        "start_line": 1,
+        "end_line": 3,
+        "quote": "Protocol Stack: Vitamin C + Quercetin 500mg, NMN 500mg, NAC 600mg, Magnesium Glycinate, Metformin.",
+        "quote_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.95
+      },
+      {
+        "span_id": "gbs1:default:sources/test/protocol-marker#compiled_truth:L4-L5",
+        "source_id": "default",
+        "slug": "sources/test/protocol-marker",
+        "title": "Protocol Marker",
+        "section": "compiled_truth",
+        "start_line": 4,
+        "end_line": 5,
+        "quote": "At 31-32 w with ferritin 19.9 ng/mL and FGR, the marker review focused on fetal iron endowment.",
+        "quote_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.9
+      }
+    ]
+  }
+}

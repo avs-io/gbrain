@@ -2,11 +2,12 @@
  * gbrain gog-gmail-sync — thin Gmail high-signal connector.
  *
  * Shells out to the `gog` CLI (not Google API clients) to fetch high-signal
- * Gmail threads (sent, starred, important, direct), archives raw JSON, and
- * normalizes emails to markdown with frontmatter.
+ * Gmail threads (sent, starred, important, direct), archives raw JSON,
+ * normalizes emails to markdown, and writes them as GBrain pages.
  *
  * Usage:
  *   gbrain gog-gmail-sync [--date YYYY-MM-DD] [--label <label>] [--dry-run]
+ *   gbrain ops programs sync --file programs.yaml   # add to always-on via programs.yaml
  *
  * Output layout (relative to gbrain root):
  *   raw/sources/archive/gmail-gog/<date>/
@@ -16,6 +17,10 @@
  *   raw/sources/events/gmail-gog/<date>/
  *     <slug>.md                       — normalized email record per thread
  *
+ * GBrain page layout:
+ *   wiki/sources/gmail/<from-slug>/<subject-slug>
+ *   (e.g. wiki/sources/gmail/google/re-google-ai-announcement)
+ *
  * Does NOT access live Google data when tests run (inject mock deps).
  */
 
@@ -23,6 +28,8 @@ import { execFileSync } from 'child_process';
 import { writeFileSync, mkdirSync } from 'fs';
 import { join } from 'path';
 import { fileURLToPath } from 'url';
+import type { BrainEngine } from '../core/engine.ts';
+import type { PageInput } from '../core/types.ts';
 
 // ── gog binary ──────────────────────────────────────────────────
 const GOG_BIN = process.env.GOG_BIN || 'gog';
@@ -44,6 +51,8 @@ export interface GogGmailSyncDeps {
   writeFile(path: string, data: string): void;
   mkdir(path: string): void;
   rootDir: string;                       // override project root
+  engine?: BrainEngine;                  // optional GBrain engine for page writes
+  writePage?(slug: string, page: PageInput): Promise<void>; // optional page writer (engine-based)
 }
 
 function defaultDeps(): GogGmailSyncDeps {
@@ -79,6 +88,8 @@ export interface GmailSyncResult {
   labelsFetched: number;
   threadsFetched: number;
   messagesNormalized: number;
+  pagesWritten: number;
+  pagesSkipped: number;
   errors: string[];
 }
 
@@ -93,6 +104,95 @@ function normalizeAddressList(val: string | string[] | undefined): string {
   if (!val) return '';
   if (Array.isArray(val)) return val.join(', ');
   return val;
+}
+
+// ── Page slug & input builders ──────────────────────────────────
+
+function extractEmailDomain(from: string): string {
+  // Extract domain from "User <user@example.com>" or bare email
+  const match = from.match(/<([^>]+)>|@([^@]+)$/);
+  if (match) return (match[1] || match[2] || '').split('@')[1] || 'unknown';
+  return 'unknown';
+}
+
+function slugifyAddress(addr: string): string {
+  if (!addr) return 'unknown';
+  // Strip email brackets, normalize
+  const clean = addr.replace(/<[^>]*>/g, '').trim().toLowerCase();
+  const domain = extractEmailDomain(addr);
+  // Use domain as the sender slug (privacy-safe)
+  return domain.replace(/[^a-z0-9]/gi, '-').replace(/^-|-$/g, '');
+}
+
+function slugifySubject(subj: string): string {
+  if (!subj) return 'no-subject';
+  return subj
+    .toLowerCase()
+    .replace(/[^a-z0-9\s_-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .slice(0, 80)
+    .replace(/^-|-$/g, '');
+}
+
+/**
+ * Build the GBrain page slug for an email thread.
+ * Layout: wiki/sources/gmail/<from-domain>/<subject-slug>
+ */
+export function buildGmailPageSlug(thread: GogThread): string {
+  const fromSlug = slugifyAddress(thread.from || '');
+  const subjectSlug = slugifySubject(thread.subject || '');
+  return `sources/gmail/${fromSlug}/${subjectSlug}`;
+}
+
+/**
+ * Build the GBrain PageInput for an email thread.
+ */
+export function buildGmailPageInput(
+  thread: GogThread,
+  label: string,
+  targetDate: string,
+): PageInput {
+  const subject = thread.subject || '(no subject)';
+  const from = thread.from || '';
+  const date = thread.date || '';
+  const labels = (thread.labels || []).join(', ');
+  const msgCount = thread.messageCount || 1;
+  const threadId = thread.id || '';
+
+  const frontmatter: Record<string, unknown> = {
+    type: 'email',
+    subject,
+    from,
+    date,
+    labels,
+    source_label: label,
+    imported: targetDate,
+    thread_id: threadId,
+    message_count: msgCount,
+    source: 'gmail-gog',
+  };
+
+  // Build compiled_truth body
+  const bodyParts: string[] = [];
+  if (from) bodyParts.push(`**From:** ${from}`);
+  if (date) bodyParts.push(`**Date:** ${date}`);
+  if (labels) bodyParts.push(`**Labels:** ${labels}`);
+  if (msgCount > 1) bodyParts.push(`**Messages in thread:** ${msgCount}`);
+  if (thread.snippet) {
+    bodyParts.push('');
+    bodyParts.push(thread.snippet.trim());
+  }
+  bodyParts.push('');
+  bodyParts.push(`*Source: gmail-gog | Label: ${label} | Imported: ${targetDate}*`);
+
+  return {
+    type: 'email',
+    title: subject,
+    compiled_truth: bodyParts.join('\n'),
+    timeline: '',
+    frontmatter,
+  };
 }
 
 
@@ -143,7 +243,7 @@ function renderThreadMarkdown(thread: GogThread, label: string, targetDate: stri
 
 // ── Core logic ──────────────────────────────────────────────────
 
-export function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>): GmailSyncResult {
+export async function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>): Promise<GmailSyncResult> {
   const d = { ...defaultDeps(), ...deps };
   const today = new Date().toISOString().slice(0, 10);
 
@@ -172,6 +272,8 @@ export function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>
     labelsFetched: 0,
     threadsFetched: 0,
     messagesNormalized: 0,
+    pagesWritten: 0,
+    pagesSkipped: 0,
     errors: [],
   };
 
@@ -222,12 +324,34 @@ export function runGogGmailSync(args: string[], deps?: Partial<GogGmailSyncDeps>
         d.writeFile(mdPath, renderThreadMarkdown(thread, label, targetDate));
         result.messagesNormalized++;
       }
+
+      // ── Step 3: Write email as GBrain page ───────────────────
+
+      if (d.writePage) {
+        const pageSlug = buildGmailPageSlug(thread);
+        const pageInput = buildGmailPageInput(thread, label, targetDate);
+        try {
+          // Deduplication: skip if page already exists with same thread id frontmatter
+          const existing = await d.engine?.getPage(pageSlug);
+          if (existing && existing.frontmatter?.thread_id === threadId) {
+            result.pagesSkipped++;
+          } else {
+            await d.writePage(pageSlug, pageInput);
+            result.pagesWritten++;
+          }
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : String(e);
+          result.errors.push(`Failed to write page for thread "${threadId}": ${msg}`);
+          console.error(`  [page-write error] thread ${threadId}: ${msg}`);
+        }
+      }
     }
   }
 
   console.log(
     `\nSync complete: ${result.labelsFetched} labels, ` +
-    `${result.threadsFetched} threads, ${result.messagesNormalized} normalized${dryRun ? ' (dry-run)' : ''}`,
+    `${result.threadsFetched} threads, ${result.messagesNormalized} normalized, ` +
+    `${result.pagesWritten} pages written, ${result.pagesSkipped} skipped${dryRun ? ' (dry-run)' : ''}`,
   );
 
   if (result.errors.length > 0) {
@@ -263,14 +387,22 @@ Output layout:
 Requires: gog CLI in PATH (or set GOG_BIN env var to the binary path).
 `.trimStart();
 
-export async function runGogGmailSyncCommand(args: string[]): Promise<void> {
+export async function runGogGmailSyncCommand(args: string[], engine?: BrainEngine): Promise<void> {
   if (args.includes('--help') || args.includes('-h')) {
     console.log(USAGE);
     process.exit(0);
     return; // guard for test environments where process.exit is mocked
   }
+
+  // Build page-writer closure from engine
+  const writePage = engine
+    ? async (slug: string, page: PageInput) => {
+        await engine.putPage(slug, page);
+      }
+    : undefined;
+
   try {
-    runGogGmailSync(args);
+    await runGogGmailSync(args, { engine, writePage });
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     console.error(`gog-gmail-sync failed: ${msg}`);

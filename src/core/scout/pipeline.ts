@@ -81,8 +81,19 @@ export interface ScoutSignal {
   relevance_score: number;
   urgency_score: number;
   confidence: number;
-  suggested_actions: string[];
+  suggested_actions: ScoutSuggestedAction[];
   matched_memory_refs: string[];
+}
+
+export type ScoutSuggestedActionType = 'compare' | 'save_for_review' | 'surface_to_reviewer' | 'recipe_template';
+
+export interface ScoutSuggestedAction {
+  type: ScoutSuggestedActionType;
+  label: string;
+  rationale: string;
+  review_only: true;
+  external_action_allowed: false;
+  trusted_memory_write_allowed: false;
 }
 
 export interface ScoutSourceInput {
@@ -166,6 +177,22 @@ export const BUILTIN_SCOUT_RECIPES: ScoutRecipe[] = [
     outputs: { kinds: ['query_plan', 'claim_candidates', 'radar_candidates'], review_only: true, trusted_world_updates: false },
     action_templates: ['capture implementation idea', 'compare to current stack', 'queue for review'],
   }),
+  makeRecipe({
+    slug: 'health-os-personalization',
+    title: 'Health OS Personalization',
+    objective: 'Track public signals about health operating systems, metabolic personalization, health data interoperability, and evidence-backed personalization loops.',
+    description: 'Public signals about personalized health OS products, metabolic health, wearables, GLP-1 programs, Health Connect/Open Health Stack, and evidence-backed personalization.',
+    keywords: ['health', 'personalization', 'metabolic', 'wearable', 'glp 1', 'health connect', 'open health stack', 'nutrition'],
+    seed_queries: [
+      'health OS personalization metabolic wearables GLP-1 evidence backed India',
+      'Health Connect Open Health Stack personalized metabolic health app',
+      'AI personalized nutrition metabolic health wearable protocols public launch',
+    ],
+    watch_entities: ['Health Connect', 'Open Health Stack', 'Ultrahuman', 'WHOOP', 'Levels', 'Mochi Health', 'Eli Lilly', 'Novo Nordisk'],
+    budgets: { max_queries_per_run: 8, max_results_per_query: 10, max_runtime_seconds: 90, max_external_fetches: 0 },
+    outputs: { kinds: ['query_plan', 'claim_candidates', 'radar_candidates', 'briefing_note'], review_only: true, trusted_world_updates: false },
+    action_templates: ['compare to Eonic product spine', 'capture product evidence pattern', 'queue for health-trust review'],
+  }),
 ];
 
 function stableId(input: unknown): string {
@@ -186,6 +213,22 @@ function unique(items: string[]): string[] {
 
 function clamp(n: number): number {
   return Math.max(0, Math.min(1, Number(n.toFixed(3))));
+}
+
+function reviewOnlyAction(type: ScoutSuggestedActionType, label: string, rationale: string): ScoutSuggestedAction {
+  return { type, label, rationale, review_only: true, external_action_allowed: false, trusted_memory_write_allowed: false };
+}
+
+function uniqueActions(actions: ScoutSuggestedAction[]): ScoutSuggestedAction[] {
+  const seen = new Set<string>();
+  const out: ScoutSuggestedAction[] = [];
+  for (const action of actions) {
+    const key = `${action.type}:${action.label.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(action);
+  }
+  return out;
 }
 
 function scoreOverlap(haystack: string, needles: string[]): number {
@@ -353,11 +396,11 @@ export function buildScoutSignalFromSource(input: { recipe: ScoutRecipe; source:
   const urgency = clamp(0.08 + (claim.includes('now') || claim.includes('launch') || claim.includes('urgent') ? 0.22 : 0) + (source.published_at ? 0.05 : 0));
   const confidence = clamp(0.28 + keywordHits * 0.35 + Math.min(0.15, excerpt.length / 400));
 
-  const suggestions = unique([
-    ...(keywordHits > 0.34 ? ['compare against current research'] : []),
-    ...(novelty >= 0.5 ? ['save for review'] : []),
-    ...(urgency >= 0.25 ? ['surface to reviewer'] : []),
-    ...recipe.action_templates.slice(0, 2),
+  const suggestions = uniqueActions([
+    ...(keywordHits > 0.34 ? [reviewOnlyAction('compare', 'compare against current research', 'The signal overlaps the recipe keywords enough to merit a review-only comparison.')] : []),
+    ...(novelty >= 0.5 ? [reviewOnlyAction('save_for_review', 'save for review', 'The novelty score is high enough to preserve the signal for reducer/reviewer triage.')] : []),
+    ...(urgency >= 0.25 ? [reviewOnlyAction('surface_to_reviewer', 'surface to reviewer', 'The signal has launch/now/timing cues or a dated source, so it should be surfaced for review without external action.')] : []),
+    ...recipe.action_templates.slice(0, 2).map(label => reviewOnlyAction('recipe_template', label, `Recipe template action for ${recipe.slug}; review-only and non-mutating.`)),
   ]).slice(0, 4);
 
   const matched_memory_refs = unique(

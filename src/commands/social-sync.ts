@@ -1,12 +1,12 @@
 /**
- * gbrain social-sync — ingest browser-captured LinkedIn/X posts.
+ * gbrain social-sync — ingest browser-captured LinkedIn/X/ChatGPT/Claude/Gemini posts.
  *
- * Reads JSONL files from `~/.gbrain/integrations/browser-transcripts/{linkedin,x}/`,
+ * Reads JSONL files from `~/.gbrain/integrations/browser-transcripts/{linkedin,x,chatgpt,claude,gemini}/`,
  * converts `browser_transcript_message_v1` records to `SocialPost` format,
  * and ingests through the existing `ingestSocialPosts()` pipeline.
  *
  * Usage:
- *   gbrain social-sync [--dry-run] [--platform linkedin|x|all] [--max N]
+ *   gbrain social-sync [--dry-run] [--platform linkedin|x|chatgpt|claude|gemini|all] [--max N]
  *
  * Does NOT access live data when tests run (inject mock deps).
  */
@@ -158,15 +158,18 @@ export function browserTranscriptToSocialPost(msg: BrowserTranscriptMessage): So
 
 export interface SocialSyncArgs {
   dryRun: boolean;
-  platform: 'linkedin' | 'x' | 'all';
+  platform: 'linkedin' | 'x' | 'chatgpt' | 'claude' | 'gemini' | 'all';
   max: number;
 }
+
+export type SupportedPlatform = 'linkedin' | 'x' | 'chatgpt' | 'claude' | 'gemini';
+const ALL_PLATFORMS: SupportedPlatform[] = ['linkedin', 'x', 'chatgpt', 'claude', 'gemini'];
 
 export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDeps>): Promise<SocialSyncResult> {
   const d = { ...defaultDeps(), ...deps };
 
   let dryRun = false;
-  let platform: 'linkedin' | 'x' | 'all' = 'all';
+  let platform: 'linkedin' | 'x' | 'chatgpt' | 'claude' | 'gemini' | 'all' = 'all';
   let max = 50;
 
   for (let i = 0; i < args.length; i++) {
@@ -175,10 +178,11 @@ export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDep
       dryRun = true;
     } else if (a === '--platform' && args[i + 1]) {
       const p = args[++i].toLowerCase();
-      if (p !== 'linkedin' && p !== 'x' && p !== 'all') {
-        throw new Error(`Invalid platform: ${p}. Must be 'linkedin', 'x', or 'all'.`);
+      const validPlatforms = [...ALL_PLATFORMS, 'all'] as const;
+      if (!validPlatforms.includes(p as typeof validPlatforms[number])) {
+        throw new Error(`Invalid platform: ${p}. Must be one of: ${validPlatforms.join(', ')}.`);
       }
-      platform = p as 'linkedin' | 'x' | 'all';
+      platform = p as typeof platform;
     } else if (a === '--max' && args[i + 1]) {
       max = parseInt(args[++i], 10);
       if (isNaN(max) || max < 1) {
@@ -197,7 +201,7 @@ export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDep
     totalLines: 0,
   };
 
-  const platformsToSync = platform === 'all' ? ['linkedin', 'x'] : [platform];
+  const platformsToSync = platform === 'all' ? ALL_PLATFORMS : [platform as SupportedPlatform];
 
   // Collect all messages from all JSONL files
   const allMessages: BrowserTranscriptMessage[] = [];
@@ -348,16 +352,16 @@ export async function runSocialSync(args: string[], deps?: Partial<SocialSyncDep
 const USAGE = `
 Usage: gbrain social-sync [options]
 
-Ingest saved/bookmarked LinkedIn and X posts from browser capture JSONL
-into GBrain's social-post pipeline.
+Ingest saved/bookmarked LinkedIn, X, ChatGPT, Claude, and Gemini posts from browser
+capture JSONL into GBrain's social-post pipeline.
 
 Options:
   --dry-run           Show what would be ingested without writing
-  --platform <plat>   Filter to platform: 'linkedin', 'x', or 'all' (default: all)
+  --platform <plat>   Filter to platform: 'linkedin', 'x', 'chatgpt', 'claude', 'gemini', or 'all' (default: all)
   --max N             Max posts per platform (default: 50)
   --help              Show this help message
 
-Input: ~/.gbrain/integrations/browser-transcripts/{linkedin,x}/*.jsonl
+Input: ~/.gbrain/integrations/browser-transcripts/{linkedin,x,chatgpt,claude,gemini}/*.jsonl
 Output: raw/sources/social/<platform>/<date>/<slug>.md
 `.trimStart();
 

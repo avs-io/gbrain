@@ -1,0 +1,65 @@
+programs:
+  - id: browser-transcript-sync
+    title: Browser Transcript Sync
+    status: active
+    priority: 82
+    owner_agent: local-private
+    objective: >
+      Ingest browser-captured ChatGPT, Claude, and Gemini conversation transcripts
+      from ~/.gbrain/integrations/browser-transcripts/{chatgpt,claude,gemini}/
+      into GBrain's social-post pipeline. Deduplicates by conv_id + message hash,
+      converts to SocialPost format, and stores raw data.
+    lanes:
+      - transcript_ingest
+      - social_post_ingest
+      - private_extraction
+    cadence:
+      scan_every_minutes: 30
+      daily_rollup: true
+    budgets:
+      qwen_jobs_per_day: 50
+      minimax_calls_per_day: 100
+    autonomy:
+      can_ingest_browser_transcripts: true
+      can_create_memory_proposals: true
+      can_mutate_trusted_memory: false
+      can_contact_people: false
+    approval_gates:
+      - external_message_send
+      - trusted_memory_write
+    outputs:
+      - type: social_post
+      - type: transcript_ingest_report
+  - id: bookmark-enrichment
+    title: Bookmark Enrichment → GBrain Pages
+    status: active
+    priority: 78
+    owner_agent: local-private
+    objective: >
+      Run the bookmark enrichment pipeline: read ~/.gbrain/integrations/enrichment-queue.jsonl,
+      cross-reference with enrichment-status.jsonl, parse 350+ enriched X JSON files from
+      ~/.gbrain/integrations/enriched/x/, run bookmark-deep-radar classification, and write
+      "remember" and "act" decisions as GBrain pages at
+      wiki/sources/bookmarks/{platform}/{author}/{slug}. Also enqueues investigate/act
+      work items. Review-only: no external sends, no trusted memory mutation.
+    lanes:
+      - intake
+      - research
+      - ops
+    cadence:
+      scan_every_minutes: 60
+    budgets:
+      max_external_fetches: 0
+      max_live_fetches: 0
+    autonomy:
+      internal_ops_only: true
+      can_contact_people: false
+      can_mutate_trusted_memory: false
+    approval_gates:
+      - external_action
+      - trusted_memory_mutation
+      - live_fetch
+    outputs:
+      - type: bookmark_deep_radar_report
+      - type: gbrain_page
+      - type: ops_work_item

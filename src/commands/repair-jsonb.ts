@@ -37,17 +37,37 @@ import { getCliOptions, cliOptsToProgressOptions } from '../core/cli-options.ts'
 interface RepairTarget {
   table: string;
   column: string;
+  expected: 'object' | 'array';
   /** Optional secondary key column for logging. */
   keyCol?: string;
+  /** Added after the original v0.12 surface; skip cleanly on older installs. */
+  optional?: boolean;
 }
 
 const TARGETS: RepairTarget[] = [
-  { table: 'pages',          column: 'frontmatter',    keyCol: 'slug' },
-  { table: 'raw_data',       column: 'data',           keyCol: 'source' },
-  { table: 'ingest_log',     column: 'pages_updated',  keyCol: 'source_ref' },
-  { table: 'files',          column: 'metadata',       keyCol: 'storage_path' },
-  { table: 'page_versions',  column: 'frontmatter',    keyCol: 'snapshot_at' },
+  { table: 'pages',          column: 'frontmatter',    expected: 'object', keyCol: 'slug' },
+  { table: 'raw_data',       column: 'data',           expected: 'object', keyCol: 'source' },
+  { table: 'ingest_log',     column: 'pages_updated',  expected: 'array',  keyCol: 'source_ref' },
+  { table: 'files',          column: 'metadata',       expected: 'object', keyCol: 'storage_path' },
+  { table: 'page_versions',  column: 'frontmatter',    expected: 'object', keyCol: 'snapshot_at' },
+  // Post-v0.12 executeRaw/jsonb write sites. These were vulnerable whenever
+  // callers passed JSON.stringify(value) to `$N::jsonb` under postgres.js.
+  { table: 'sources',                    column: 'config',         expected: 'object', optional: true },
+  { table: 'code_edges_chunk',           column: 'edge_metadata',  expected: 'object', optional: true },
+  { table: 'code_edges_symbol',          column: 'edge_metadata',  expected: 'object', optional: true },
+  { table: 'minion_jobs',                column: 'data',           expected: 'object', optional: true },
+  { table: 'minion_jobs',                column: 'progress',       expected: 'object', optional: true },
+  { table: 'minion_jobs',                column: 'stacktrace',     expected: 'array',  optional: true },
+  { table: 'minion_jobs',                column: 'quiet_hours',    expected: 'object', optional: true },
+  { table: 'minion_inbox',               column: 'payload',        expected: 'object', optional: true },
+  { table: 'subagent_messages',          column: 'content_blocks', expected: 'array',  optional: true },
+  { table: 'subagent_tool_executions',   column: 'input',          expected: 'object', optional: true },
 ];
+
+function repairedPayloadPredicate(t: RepairTarget): string {
+  const opener = t.expected === 'array' ? '\\[' : '\\{';
+  return `jsonb_typeof(${t.column}) = 'string' AND (${t.column} #>> '{}') ~ '^\\s*${opener}'`;
+}
 
 export interface RepairResult {
   engine: string;
@@ -115,18 +135,21 @@ export async function repairJsonb(opts: RepairOpts = { dryRun: false }): Promise
     try {
       if (opts.dryRun) {
         const rows = await sql.unsafe(
-          `SELECT count(*)::int AS n FROM ${t.table} WHERE jsonb_typeof(${t.column}) = 'string'`,
+          `SELECT count(*)::int AS n FROM ${t.table} WHERE ${repairedPayloadPredicate(t)}`,
         );
         repaired = (rows[0] as unknown as { n: number }).n;
       } else {
         const rows = await sql.unsafe(
           `UPDATE ${t.table}
            SET ${t.column} = (${t.column} #>> '{}')::jsonb
-           WHERE jsonb_typeof(${t.column}) = 'string'
+           WHERE ${repairedPayloadPredicate(t)}
            RETURNING 1`,
         );
         repaired = rows.length;
       }
+    } catch (e) {
+      if (!t.optional) throw e;
+      repaired = 0;
     } finally {
       stopHb();
     }

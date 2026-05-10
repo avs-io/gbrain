@@ -30,6 +30,7 @@ describe('scout pipeline', () => {
       'sovereign-ai-india',
       'agent-memory-systems',
       'ai-agent-infra',
+      'health-os-personalization',
     ]);
     for (const recipe of BUILTIN_SCOUT_RECIPES) {
       expect(validateScoutRecipe(recipe)).toEqual([]);
@@ -83,7 +84,9 @@ describe('scout pipeline', () => {
     const recipe = BUILTIN_SCOUT_RECIPES[1]!;
     const signal = buildScoutSignalFromSource({ recipe, source: { source_title: 'Agent memory memo', claim: 'urgent memory launch', excerpt: 'Agent memory systems with source-grounded recall and eval loops.', entities: ['memory', 'evals'] } });
     expect(signal.suggested_actions.length).toBeLessThanOrEqual(4);
-    expect(signal.suggested_actions.every(a => !a.includes('publish') && !a.includes('send') && !a.includes('edit trusted'))).toBe(true);
+    expect(signal.suggested_actions.every(a => !a.label.includes('publish') && !a.label.includes('send') && !a.label.includes('edit trusted'))).toBe(true);
+    expect(signal.suggested_actions.every(a => a.rationale.length > 20 && a.review_only === true && a.external_action_allowed === false && a.trusted_memory_write_allowed === false)).toBe(true);
+    expect(signal.suggested_actions.map(a => a.type)).toContain('recipe_template');
     expect(signal.confidence).toBeGreaterThanOrEqual(0);
   });
 });
@@ -114,7 +117,7 @@ describe('scout CLI recipes', () => {
 
   test('lists topic tracks as json', async () => {
     const out = JSON.parse(await captureStdout(() => runScoutCommand(null, ['topics', 'list', '--json'])));
-    expect(out.tracks.map((t: any) => t.slug)).toEqual(['sovereign-ai-india', 'agent-memory-systems', 'ai-agent-infra']);
+    expect(out.tracks.map((t: any) => t.slug)).toEqual(['sovereign-ai-india', 'agent-memory-systems', 'ai-agent-infra', 'health-os-personalization']);
   });
 
   test('public run creates source items/spans and records ledger diagnostics', async () => {

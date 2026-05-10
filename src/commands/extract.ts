@@ -59,6 +59,44 @@ interface ExtractResult {
   pages_processed: number;
 }
 
+export async function ensureTimelineDedupIndex(engine: BrainEngine): Promise<void> {
+  // The addTimelineEntry* SQL uses ON CONFLICT (page_id, date, summary), which
+  // requires a matching unique/exclusion constraint. Some upgraded brains have
+  // schema_version marked current but lost idx_timeline_dedup or carry an older
+  // same-named index with the wrong shape; re-run the idempotent v9 migration
+  // fragment locally before timeline writes.
+  const existing = await engine.executeRaw<{ indexdef: string }>(
+    `SELECT indexdef FROM pg_indexes
+      WHERE schemaname = current_schema()
+        AND tablename = 'timeline_entries'
+        AND indexname = 'idx_timeline_dedup'`,
+  );
+  const indexDef = existing[0]?.indexdef ?? '';
+  const hasValidIndex = /unique\s+index/i.test(indexDef)
+    && /\(page_id,\s*date,\s*summary\)/i.test(indexDef);
+  if (existing.length > 0 && !hasValidIndex) {
+    await engine.executeRaw(`DROP INDEX IF EXISTS idx_timeline_dedup`);
+  }
+  if (hasValidIndex) return;
+
+  await engine.executeRaw(
+    `CREATE INDEX IF NOT EXISTS idx_timeline_dedup_helper
+       ON timeline_entries(page_id, date, summary)`,
+  );
+  await engine.executeRaw(
+    `DELETE FROM timeline_entries a USING timeline_entries b
+      WHERE a.page_id = b.page_id
+        AND a.date = b.date
+        AND a.summary = b.summary
+        AND a.id > b.id`,
+  );
+  await engine.executeRaw(`DROP INDEX IF EXISTS idx_timeline_dedup_helper`);
+  await engine.executeRaw(
+    `CREATE UNIQUE INDEX IF NOT EXISTS idx_timeline_dedup
+       ON timeline_entries(page_id, date, summary)`,
+  );
+}
+
 // --- Shared walker ---
 
 export function walkMarkdownFiles(dir: string): { path: string; relPath: string }[] {
@@ -466,6 +504,8 @@ async function extractForSlugs(
   const doLinks = mode === 'links' || mode === 'all';
   const doTimeline = mode === 'timeline' || mode === 'all';
 
+  if (doTimeline && !dryRun) await ensureTimelineDedupIndex(engine);
+
   const progress = createProgress(cliOptsToProgressOptions(getCliOptions()));
   progress.start('extract.incremental', slugs.length);
 
@@ -620,6 +660,7 @@ async function extractTimelineFromDir(
   engine: BrainEngine, brainDir: string, dryRun: boolean, jsonMode: boolean,
 ): Promise<{ created: number; pages: number }> {
   const files = walkMarkdownFiles(brainDir);
+  if (!dryRun) await ensureTimelineDedupIndex(engine);
 
   const progress = createProgress(cliOptsToProgressOptions(getCliOptions()));
   progress.start('extract.timeline_fs', files.length);
@@ -694,6 +735,7 @@ export async function extractLinksForSlugs(engine: BrainEngine, repoPath: string
 }
 
 export async function extractTimelineForSlugs(engine: BrainEngine, repoPath: string, slugs: string[]): Promise<number> {
+  await ensureTimelineDedupIndex(engine);
   let created = 0;
   for (const slug of slugs) {
     const filePath = join(repoPath, slug + '.md');
@@ -850,6 +892,7 @@ async function extractTimelineFromDB(
 ): Promise<{ created: number; pages: number }> {
   const allSlugs = await engine.getAllSlugs();
   const slugList = Array.from(allSlugs);
+  if (!dryRun) await ensureTimelineDedupIndex(engine);
   let processed = 0, created = 0;
 
   const progress = createProgress(cliOptsToProgressOptions(getCliOptions()));

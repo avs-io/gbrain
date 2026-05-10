@@ -2,6 +2,17 @@ import { SYNTHETIC_TYPES, SYNTHETIC_QUERY_SHAPES, type SyntheticQueryCase, type 
 
 export interface ValidationIssue { path: string; message: string; }
 
+export interface SyntheticTrainingMixReport {
+  ok: boolean;
+  total_records: number;
+  real_seeded_records: number;
+  synthetic_seeded_records: number;
+  recursive_synthetic_output_records: number;
+  real_seed_ratio: number;
+  min_real_seed_ratio: number;
+  issues: ValidationIssue[];
+}
+
 function isStringArray(value: unknown): value is string[] {
   return Array.isArray(value) && value.every(v => typeof v === 'string' && v.trim().length > 0);
 }
@@ -42,3 +53,44 @@ export function validateSyntheticQueryCase(value: unknown): ValidationIssue[] {
   return issues;
 }
 
+function hasSyntheticSeedIds(record: Partial<SyntheticRecord> & Record<string, unknown>): boolean {
+  const sourceIds = Array.isArray(record.seed_source_ids) ? record.seed_source_ids : [];
+  const spanIds = Array.isArray(record.seed_evidence_span_ids) ? record.seed_evidence_span_ids : [];
+  return [...sourceIds, ...spanIds].some(id => typeof id === 'string' && /^(?:syn:|synthetic:|model-output:)/i.test(id));
+}
+
+function hasRecursiveSyntheticOutput(record: Partial<SyntheticRecord> & Record<string, unknown>): boolean {
+  const metadata = record.metadata;
+  const lineage = record.lineage;
+  const serialized = JSON.stringify({ metadata, lineage, generated_by_model: record.generated_by_model, seed_source_ids: record.seed_source_ids, seed_evidence_span_ids: record.seed_evidence_span_ids }).toLowerCase();
+  return /(?:synthetic_self_output|recursive_synthetic|self[-_ ]generated|model-output:|synthetic-output:)/.test(serialized);
+}
+
+export function validateSyntheticTrainingMix(records: unknown[], opts: { minRealSeedRatio?: number } = {}): SyntheticTrainingMixReport {
+  const minRealSeedRatio = opts.minRealSeedRatio ?? 0.7;
+  const issues: ValidationIssue[] = [];
+  if (!Array.isArray(records)) {
+    return { ok: false, total_records: 0, real_seeded_records: 0, synthetic_seeded_records: 0, recursive_synthetic_output_records: 0, real_seed_ratio: 0, min_real_seed_ratio: minRealSeedRatio, issues: [{ path: '', message: 'records must be an array' }] };
+  }
+
+  let realSeeded = 0;
+  let syntheticSeeded = 0;
+  let recursive = 0;
+  records.forEach((record, index) => {
+    const row = (record && typeof record === 'object' && !Array.isArray(record)) ? record as Partial<SyntheticRecord> & Record<string, unknown> : {};
+    const baseIssues = validateSyntheticRecord(row).map(issue => ({ path: `records[${index}].${issue.path}`.replace(/\.$/, ''), message: issue.message }));
+    issues.push(...baseIssues);
+    if (hasSyntheticSeedIds(row)) syntheticSeeded += 1;
+    else realSeeded += 1;
+    if (hasRecursiveSyntheticOutput(row)) recursive += 1;
+  });
+
+  const total = records.length;
+  const realSeedRatio = total ? Number((realSeeded / total).toFixed(3)) : 0;
+  if (total === 0) issues.push({ path: 'records', message: 'training mix must contain at least one record' });
+  if (realSeedRatio < minRealSeedRatio) issues.push({ path: 'real_seed_ratio', message: `real seeded material ratio ${realSeedRatio} is below required ${minRealSeedRatio}` });
+  if (syntheticSeeded > 0) issues.push({ path: 'seed_source_ids', message: 'synthetic/model-output seed ids are not allowed in training mix' });
+  if (recursive > 0) issues.push({ path: 'lineage', message: 'recursive synthetic self-output is not allowed in training mix' });
+
+  return { ok: issues.length === 0, total_records: total, real_seeded_records: realSeeded, synthetic_seeded_records: syntheticSeeded, recursive_synthetic_output_records: recursive, real_seed_ratio: realSeedRatio, min_real_seed_ratio: minRealSeedRatio, issues };
+}

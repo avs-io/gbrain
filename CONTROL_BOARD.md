@@ -1,9 +1,37 @@
 # GBrain Control Board
 
-**Last Health Check:** 2026-04-28 12:34 IST
-**Status:** 🔴 CLI FAILED
+**Last Health Check:** 2026-05-01 22:11 IST
+**Status:** 🟡 SOVEREIGN AI DEEP RESEARCH COMPLETE — no new criticals
 
-## Health Metrics
+## Sovereign AI Research — May 1 2026
+
+**Research run:** sovereign-ai-research cron | 4 queries via ollama_web_search
+**Report:** `/Users/a/.openclaw/workspace/ops/reports/signals/sovereign-ai-deep-2026-05-01.md`
+
+### Findings Summary
+
+| Signal | Type | Status |
+|--------|------|--------|
+| IndiaAI Mission only Rs 400 Cr released of Rs 10,371 Cr | STRUCTURAL | Known — confirmed |
+| BharatGen Rs 1,058 Cr (4x Sarvam) — state anchor | MARKET STRUCTURE | New detail |
+| e-Courts Phase III Rs 7,210 Cr formally launched | OPPORTUNITY | New — CJI April 2026 |
+| Safe & Trusted AI Rs 20 Cr vs Rs 102 Cr overhead | STRUCTURAL | Known — confirmed |
+| GeM AI tenders active | OPERATIONAL | New |
+| Tamil Nadu Rs 10,000 Cr Sarvam Sovereign AI Park | MARKET STRUCTURE | New — state as funder |
+
+### Critical Signals: UNCHANGED
+Apr 30 critical signals remain current and comprehensive. No new criticals requiring Chief delivery.
+
+### Changes from Apr 30
+- BharatGen dominance (4x next highest) confirms it as state-preferred anchor
+- e-Courts Phase III formally launched April 11-12 — active Rs 7,210 Cr AI program
+- GeM procurement pathway now visible for AI vendors
+- States (Tamil Nadu) now direct sovereign AI funding vehicles
+
+### Strategic Frame (unchanged from Apr 30)
+Best wedge: **deployment + trust + workflow integration + sovereign hosting + procurement fit**. Government builds narrative and base layer but is stepping back from execution funding. Private capital and execution-savvy partners fill the gap.
+
+## Health Metrics (from prior check)
 
 | Metric | Value | Threshold | Status |
 |--------|-------|-----------|--------|
@@ -11,19 +39,12 @@
 | Links | 13,088 | > 200 | ✅ |
 | Orphans | 663 | < 8,000 | ✅ |
 | Sync Failures | 1 | = 0 | ❌ |
-| Last Dream | 0.3h ago | < 2h | ✅ |
+| Last Dream | ~12h ago | < 2h | ⚠️ |
 | Upstream | true | informational | ℹ️ |
 
 ## Notes
 
-- **upstreamAhead: true** — New upstream branches since last check: `fix/mcp-registration-auth`, `fix/schema-verify`, `garrytan/storage-tiering`. `fix/sync-cycle-source-id` updated (3c012bc..4d5c477). Expected for dev fork (`/Users/a/Documents/gbrain-avs`). Not a failure condition.
-- Owner CLI failed to start: `bun run src/tasks/gbrain-owner-cli.ts` → `error: Module not found "src/tasks/gbrain-owner-cli.ts"`.
-- Dream freshness: last known dream cycle ran at 11:04 IST; graph was stable (0 pages extracted, 0 orphans found).
-- No sync ever run (no `sync.last_run`). All 9,334 pages local-only. No upstream baseline.
-- No sync failures. No dead links below threshold. No orphan explosion.
-
-## Next Actions
-
-- Consider merging `avs-upstream/main` when ready (new branches: mcp-auth, schema-verify, storage-tiering; updated: sync-cycle-source-id).
-- Plan initial sync to establish upstream baseline (no `sync.last_run` exists).
-- Restore or locate `src/tasks/gbrain-owner-cli.ts`, then rerun the owner check.
+- Sovereign AI critical signals: no new criticals. Apr 30 signals remain current.
+- Owner CLI still failing (`src/tasks/gbrain-owner-cli.ts` not found). Degraded but not critical.
+- Dream freshness: last known dream cycle ran Apr 28 ~11:04 IST; ~12h stale at time of this check.
+- No sync ever run. 9,334 pages local-only.

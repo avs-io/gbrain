@@ -1,0 +1,58 @@
+{
+  "id": "synthetic_decision_arc",
+  "query": "What was the idea before Rail X and why was Rail X not pursued?",
+  "expectedShapeId": "decision_arc",
+  "requiredSlots": ["decision_or_shift", "rationale"],
+  "minClaimsBySlot": {
+    "decision_or_shift": 1,
+    "rationale": 1
+  },
+  "prohibitedRegex": ["Green tea"],
+  "metamorphic": {
+    "shuffleStability": true
+  },
+  "removeEvidenceCases": [
+    {
+      "id": "remove_rationale",
+      "removeWindowIds": ["gbs1:default:sources/test/rail-x#compiled_truth:L1-L3"],
+      "expectedMissingSlots": ["decision_or_shift", "rationale"],
+      "prohibitedRegex": ["low network leverage", "Agent Commerce Clearinghouse"]
+    }
+  ],
+  "recall": {
+    "query": "What was the idea before Rail X and why was Rail X not pursued?",
+    "status": "hit",
+    "warnings": [],
+    "integration": { "search_source": "direct" },
+    "evidence": [
+      {
+        "span_id": "gbs1:default:sources/test/rail-x#compiled_truth:L1-L3",
+        "source_id": "default",
+        "slug": "sources/test/rail-x",
+        "title": "Rail X",
+        "section": "compiled_truth",
+        "start_line": 1,
+        "end_line": 3,
+        "quote": "The prior option was Agent Commerce Clearinghouse. Rail X was rejected due to low network leverage. Later it became a module on the stronger base rail.",
+        "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.95
+      },
+      {
+        "span_id": "gbs1:default:sources/test/distractor#compiled_truth:L1-L2",
+        "source_id": "default",
+        "slug": "sources/test/distractor",
+        "title": "Distractor",
+        "section": "compiled_truth",
+        "start_line": 1,
+        "end_line": 2,
+        "quote": "Green tea safety research was unrelated to the rail decision.",
+        "quote_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "line_basis": "stored_section",
+        "matched_by": "exact",
+        "score": 0.99
+      }
+    ]
+  }
+}

@@ -56,6 +56,19 @@ const DEFAULT_MAX_CONCURRENT = Number(process.env.GBRAIN_ANTHROPIC_MAX_INFLIGHT 
 const DEFAULT_LEASE_TTL_MS = 120_000;
 const DEFAULT_SYSTEM = 'You are a helpful assistant running as a gbrain subagent.';
 
+// MLX no-think server configuration
+const MLX_BASE_URL = process.env.GBRAIN_MLX_BASE_URL ?? 'http://localhost:11436';
+const MLX_MODEL = process.env.GBRAIN_MLX_MODEL ?? 'mlx-community/Qwen3.6-35B-A3B-4bit';
+const MLX_RATE_KEY = 'mlx:chat_completions';
+
+// Models that should route to MLX (local no-think server)
+const MLX_ROUTE_MODELS = new Set([
+  'mlx-community/Qwen3.6-35B-A3B-4bit',
+  'qwen3.6-35b-a3b-4bit',
+  'qwen3.6-35b',
+  'qwen-3.6-35b',
+]);
+
 // ── Injectable surfaces (for tests) ─────────────────────────
 
 /**
@@ -64,6 +77,213 @@ const DEFAULT_SYSTEM = 'You are a helpful assistant running as a gbrain subagent
  */
 export interface MessagesClient {
   create(params: Anthropic.MessageCreateParamsNonStreaming, opts?: { signal?: AbortSignal }): Promise<Anthropic.Message>;
+}
+
+/**
+ * OpenAI-compatible client for local MLX servers (e.g. no-think Qwen 3.6).
+ * Returns the OpenAI chat completion shape; we normalise it back to an
+ * Anthropic.Message so the rest of the handler is unchanged.
+ */
+export interface MLXClient {
+  create(params: MLXCreateParams, opts?: { signal?: AbortSignal }): Promise<Anthropic.Message>;
+}
+
+export interface MLXCreateParams {
+  model: string;
+  messages: OpenAIMessage[];
+  max_tokens: number;
+  tools?: Anthropic.MessageCreateParamsNonStreaming['tools'];
+  /** no_think bypasses reasoning tokens on Qwen3.6 MLX server */
+  no_think?: boolean;
+  stream?: false;
+}
+
+export interface OpenAIMessage {
+  role: 'system' | 'user' | 'assistant';
+  content: string | OpenAIContentBlock[];
+}
+
+export interface OpenAIContentBlock {
+  type: 'text' | 'tool_use' | 'tool_result';
+  text?: string;
+  id?: string;
+  name?: string;
+  input?: Record<string, unknown>;
+  tool_use_id?: string;
+  content?: string;
+  is_error?: boolean;
+}
+
+/** Returns true when the model should route to the local MLX no-think server. */
+function shouldRouteToMLX(model: string): boolean {
+  const normalised = model.toLowerCase().replace(/[_-]/g, '').replace(/\s+/g, '');
+  return MLX_ROUTE_MODELS.has(model) ||
+    MLX_ROUTE_MODELS.has(normalised) ||
+    model.startsWith('mlx-') ||
+    model.startsWith('qwen');
+}
+
+/**
+ * Attempt to reach the MLX server. Returns true only on a successful
+ * HTTP response (even error-status is considered "available" — we just
+ * want to know the server is up).
+ */
+async function isMLXAvailable(): Promise<boolean> {
+  try {
+    const res = await fetch(`${MLX_BASE_URL}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(2_000),
+    });
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Build an OpenAI-compatible messages array from anthroMessages + system.
+ * Strips Anthropic cache_control and maps block types to OpenAI shape.
+ */
+function buildMLXMessages(
+  systemPrompt: string,
+  anthroMessages: Anthropic.MessageParam[],
+  toolDefs: ToolDef[],
+): OpenAIMessage[] {
+  const systemContent = anthroMessages.length === 0
+    ? systemPrompt
+    : `${systemPrompt}\n\n[prior conversation below]`;
+
+
+  const msgs: OpenAIMessage[] = [{ role: 'system', content: systemContent }];
+
+
+  for (const msg of anthroMessages) {
+    if (msg.role === 'user') {
+      const content = normaliseContent(msg.content);
+      msgs.push({ role: 'user', content });
+    } else if (msg.role === 'assistant') {
+      const content = normaliseContent(msg.content);
+      msgs.push({ role: 'assistant', content });
+    }
+  }
+
+  return msgs;
+}
+
+/** Normalise Anthropic content (Text | ContentBlock[]) → string | OpenAIContentBlock[]. */
+function normaliseContent(
+  n: string | Anthropic.ContentBlock | Anthropic.ContentBlock[]
+): string | OpenAIContentBlock[] {
+  if (typeof n === 'string') return n;
+  if (Array.isArray(n)) {
+    return n.map(block => {
+      if (block.type === 'text') return { type: 'text' as const, text: block.text };
+      if (block.type === 'tool_use') {
+        return {
+          type: 'tool_use' as const,
+          id: (block as any).id ?? '',
+          name: block.name,
+          input: (block as any).input ?? {},
+        };
+      }
+      if (block.type === 'tool_result') {
+        return {
+          type: 'tool_result' as const,
+          tool_use_id: (block as any).tool_use_id ?? '',
+          content: typeof block.content === 'string' ? block.content : JSON.stringify(block.content),
+          is_error: (block as any).is_error ?? false,
+        };
+      }
+      // Fallback for unknown block types
+      return { type: 'text' as const, text: JSON.stringify(block) };
+    });
+  }
+  // Single ContentBlock (non-array)
+  if ((n as any).type === 'text') return { type: 'text' as const, text: (n as any).text };
+  if ((n as any).type === 'tool_use') {
+    return {
+      type: 'tool_use' as const,
+      id: (n as any).id ?? '',
+      name: (n as any).name,
+      input: (n as any).input ?? {},
+    };
+  }
+  return { type: 'text' as const, text: JSON.stringify(n) };
+}
+
+/**
+ * Call the MLX OpenAI-compatible endpoint and normalise the response back
+ * to an Anthropic.Message shape so the rest of the handler is unchanged.
+ */
+async function callMLX(
+  params: MLXCreateParams,
+  signal?: AbortSignal,
+): Promise<Anthropic.Message> {
+  const openAIParams = {
+    model: params.model,
+    messages: params.messages,
+    max_tokens: params.max_tokens,
+    ...(params.tools && params.tools.length > 0 ? { tools: params.tools } : {}),
+    no_think: params.no_think ?? true,
+  };
+
+  const res = await fetch(`${MLX_BASE_URL}/v1/chat/completions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(openAIParams),
+    signal: signal as AbortSignal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`MLX server error ${res.status}: ${body}`);
+  }
+
+  const json = await res.json() as {
+    id?: string;
+    model?: string;
+    choices: Array<{
+      message: { role: string; content: string | null; tool_calls?: Array<{ id: string; type: string; function: { name: string; arguments: string } }> };
+      finish_reason: string;
+    }>;
+    usage?: { prompt_tokens: number; completion_tokens: number; total_tokens: number };
+  };
+
+  const choice = json.choices[0];
+  if (!choice) throw new Error('MLX returned no choices');
+
+  const message = choice.message;
+  const content: ContentBlock[] = [];
+
+
+  if (message.content && message.content.length > 0) {
+    content.push({ type: 'text', text: message.content });
+  }
+
+  if (message.tool_calls && message.tool_calls.length > 0) {
+    for (const tc of message.tool_calls) {
+      let input: Record<string, unknown> = {};
+      try { input = JSON.parse(tc.function.arguments); } catch { /* use empty */ }
+      content.push({ type: 'tool_use', id: tc.id, name: tc.function.name, input } as any);
+    }
+  }
+
+  return {
+    id: json.id ?? `mlx-${Date.now()}`,
+    type: 'message',
+    role: 'assistant',
+    content,
+    model: json.model ?? params.model,
+    stop_reason: choice.finish_reason === 'length' ? 'max_tokens' as const : 'end_turn' as const,
+    usage: {
+      input_tokens: json.usage?.prompt_tokens ?? 0,
+      output_tokens: json.usage?.completion_tokens ?? 0,
+      cache_creation_input_tokens: 0,
+      cache_read_input_tokens: 0,
+    },
+    // @ts-ignore – extra fields not in the official type but harmless
+    _mlx: true,
+  };
 }
 
 export interface SubagentDeps {
@@ -316,32 +536,78 @@ export function makeSubagentHandler(deps: SubagentDeps) {
       // covers the whole request. A mid-call renewal loop would add
       // complexity; for v0.15 we lean on the 120s TTL + abort-on-signal.
       try {
-        const params: Anthropic.MessageCreateParamsNonStreaming = {
-          model,
-          max_tokens: 4096,
-          system: [
-            { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
-          ] as any,
-          messages: anthroMessages,
-          ...(toolDefs.length > 0
-            ? {
-                tools: toolDefs.map((t, i) => {
-                  const def: any = {
-                    name: t.name,
-                    description: t.description,
-                    input_schema: t.input_schema,
-                  };
-                  // Cache only the last tool def — Anthropic treats cache_control
-                  // as "cache everything up to and including this block".
-                  if (i === toolDefs.length - 1) def.cache_control = { type: 'ephemeral' };
-                  return def;
-                }),
-              }
-            : {}),
-        };
-
         const combinedSignal = mergeSignals(ctx.signal, ctx.shutdownSignal);
-        assistantMsg = await client.create(params, { signal: combinedSignal });
+
+        // ── MLX routing: try local no-think server first, fall back to Anthropic ──
+        if (shouldRouteToMLX(model)) {
+          const mlxAvailable = await isMLXAvailable();
+          if (mlxAvailable) {
+            // Acquire MLX rate lease.
+            const mlxLease = await acquireLease(engine, MLX_RATE_KEY, ctx.id, maxConcurrent, { ttlMs: leaseTtlMs });
+            if (!mlxLease.acquired) {
+              throw new RateLeaseUnavailableError(MLX_RATE_KEY, mlxLease.activeCount, mlxLease.maxConcurrent);
+            }
+            try {
+              const mlxMessages = buildMLXMessages(systemPrompt, anthroMessages, toolDefs);
+              const mlxTools = toolDefs.length > 0
+                ? toolDefs.map((t) => ({
+                    type: 'function' as const,
+                    function: {
+                      name: t.name,
+                      description: t.description,
+                      parameters: t.input_schema,
+                    },
+                  }))
+                : undefined;
+
+              assistantMsg = await callMLX(
+                {
+                  model: MLX_MODEL,
+                  messages: mlxMessages,
+                  max_tokens: 4096,
+                  tools: mlxTools,
+                  no_think: true,
+                },
+                combinedSignal,
+              );
+            } catch (mlxErr) {
+              // MLX call failed — release MLX lease and fall through to Anthropic.
+              await releaseLease(engine, mlxLease.leaseId!).catch(() => {});
+              // If it's an abort, don't fall back — re-throw so worker re-claims.
+              if (combinedSignal.aborted) throw mlxErr;
+              // For other errors, log and fall back to Anthropic.
+              await ctx.log(`MLX call failed (${mlxErr instanceof Error ? mlxErr.message : mlxErr}), falling back to Anthropic`);
+            }
+          } else {
+            await ctx.log(`MLX server unavailable (${MLX_BASE_URL}), routing to Anthropic`);
+          }
+        }
+
+        // Anthropic path (or fallback when MLX is unavailable/down/error)
+        if (!assistantMsg) {
+          const params: Anthropic.MessageCreateParamsNonStreaming = {
+            model,
+            max_tokens: 4096,
+            system: [
+              { type: 'text', text: systemPrompt, cache_control: { type: 'ephemeral' } },
+            ] as any,
+            messages: anthroMessages,
+            ...(toolDefs.length > 0
+              ? {
+                  tools: toolDefs.map((t, i) => {
+                    const def: any = {
+                      name: t.name,
+                      description: t.description,
+                      input_schema: t.input_schema,
+                    };
+                    if (i === toolDefs.length - 1) def.cache_control = { type: 'ephemeral' };
+                    return def;
+                  }),
+                }
+              : {}),
+          };
+          assistantMsg = await client.create(params, { signal: combinedSignal });
+        }
       } catch (err) {
         // Release lease eagerly on error so we don't starve capacity.
         await releaseLease(engine, lease.leaseId!).catch(() => {});

@@ -21,6 +21,24 @@ export interface ClusteredEvalInput {
   countPerShape?: number;
 }
 
+export interface HighValueClusterCorpusInput extends Omit<ClusteredEvalInput, 'shapes' | 'countPerShape'> {
+  /** Total query variants to emit for this evidence cluster. Must stay in the prescribed 20-100 range. */
+  count?: number;
+}
+
+export const HIGH_VALUE_CLUSTER_SHAPES: SyntheticQueryShape[] = [
+  'exact_fact',
+  'approximate_recall',
+  'vague_recall',
+  'wrong_detail',
+  'temporal',
+  'alias',
+  'emotional',
+  'story',
+  'why_not',
+  'multilingual',
+];
+
 function slugify(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48) || 'seed';
 }
@@ -51,10 +69,17 @@ function shapeQuery(shape: SyntheticQueryShape, seed: SyntheticSpanSeed, topic?:
   switch (shape) {
     case 'exact_fact': return { query: `What exact fact do we have about ${label}?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'approximate_recall': return { query: `What do we remember about ${label} in broad terms?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'vague_recall': return { query: `What was the gist of that ${label} thing?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'wrong_detail': return { query: `Did ${label} say the opposite of the stored evidence?`, expectedAbstain: true, expectedClaimIds: [] };
     case 'decision_arc': return { query: `Why did we move from or toward ${label}?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'relationship_arc': return { query: `How does ${label} relate to the other person or project?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'timeline': return { query: `What is the timeline for ${label}?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'temporal': return { query: `When did ${label} show up, and what was current then?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'alias': return { query: `What do we know if I refer to ${label} by its alias or shorthand?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'emotional': return { query: `What did ${label} feel frustrating, exciting, or emotionally salient about?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'story': return { query: `Tell me the source-backed story around ${label}. ${hardNegative ? 'Include an unsupported twist.' : 'Do not add unsupported details.'}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'why_not': return { query: `Why was ${label} not pursued?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
+    case 'multilingual': return { query: `हमें ${label} के बारे में source-backed क्या याद है?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'medical_or_health': return { query: `What health or medical detail do we remember about ${label}?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
     case 'opportunity_memory': return { query: `What opportunity or next move did ${label} point to?${suffix}`, expectedAbstain: hardNegative, expectedClaimIds: hardNegative ? [] : [seed.span_id] };
   }
@@ -104,6 +129,19 @@ export function generateClusteredEvalCases(input: ClusteredEvalInput): Synthetic
     out.push(payload);
   }
   return out;
+}
+
+export function generateHighValueClusterQueryCorpus(input: HighValueClusterCorpusInput): SyntheticQueryCase[] {
+  const count = input.count ?? 20;
+  if (!Number.isInteger(count) || count < 20 || count > 100) throw new Error('high-value evidence clusters require 20-100 query variants');
+  const perShape = Math.ceil(count / HIGH_VALUE_CLUSTER_SHAPES.length);
+  return generateClusteredEvalCases({
+    spans: input.spans,
+    topic: input.topic,
+    shapes: HIGH_VALUE_CLUSTER_SHAPES,
+    hardNegatives: input.hardNegatives ?? true,
+    countPerShape: perShape,
+  }).slice(0, count);
 }
 
 export function buildSyntheticQueryCase(input: { seed: SyntheticSpanSeed; shape: SyntheticQueryShape; topic?: string; claim?: string; hardNegative?: boolean; index?: number }): SyntheticQueryCase {

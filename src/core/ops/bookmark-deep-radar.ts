@@ -1,4 +1,4 @@
-import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
@@ -7,6 +7,7 @@ import { sourceSpanForWebText, webSourceItem, type SourceItemRecord, type Source
 import { extractTopicCandidatesFromSourceSpans, type TopicCandidateExtractionReport } from '../topics/extractor.ts';
 import { enqueueWorkPacket, opsStorePath, readOpsState, type OpsTopicTrack, type OpsWorkItem } from './kernel.ts';
 import { decideBookmarkAction, readBookmarkBatchFile, type BookmarkActionDecision, type BookmarkActionRadarDecision } from './bookmark-action-radar.ts';
+import type { BrainEngine } from '../engine.ts';
 
 export const OPS_BOOKMARK_DEEP_RADAR_SCHEMA = 'gbrain.ops.bookmark_deep_radar.v1';
 export const OPS_BOOKMARK_DEEP_DECISION_SCHEMA = 'gbrain.ops.bookmark_deep_decision.v1';
@@ -283,3 +284,208 @@ function extractTitle(raw: string): string { return /<title[^>]*>([\s\S]*?)<\/ti
 function selectKeySpans(text: string, hint: string): string[] { const hintWords = new Set(words(hint)); const sentences = text.split(/(?<=[.!?])\s+/).map(s => s.trim()).filter(s => s.length >= 40 && s.length <= 360); const scored = sentences.map(s => ({ s, score: words(s).filter(w => hintWords.has(w)).length + (/\b(sovereign ai|indiaai|gbrain|openclaw|qwen|benchmark|policy|procurement|github|paper|pdf|court|judicial)\b/i.test(s) ? 3 : 0) })).sort((a,b) => b.score - a.score || a.s.length - b.s.length); return uniq(scored.filter(x => x.score > 0).map(x => x.s).concat(sentences.slice(0, 3))).slice(0, 4); }
 function safeReadTopicTracks(storePath: string): OpsTopicTrack[] { try { return readOpsState(storePath).topic_tracks; } catch { return []; } }
 function linkTopics(item: BookmarkDeepInput, content: ParsedDeepContent | undefined, tracks: OpsTopicTrack[]): BookmarkTopicLink[] { const explicit = [...(item.topic_ids || []), ...(item.topics || [])]; const text = `${item.title} ${item.content} ${content?.title || ''} ${content?.summary || ''} ${content?.source_spans.map(s => s.quote).join(' ') || ''}`; const links: BookmarkTopicLink[] = explicit.map(id => ({ topic_id: id, reason: 'explicit input topic link', matched_terms: [id] })); if (/\b(sovereign ai|indiaai|india ai mission|bharatgen|sarvam|meity)\b/i.test(text) && !links.some(l => l.topic_id === 'world-sovereign-ai-india')) links.push({ topic_id: 'world-sovereign-ai-india', reason: 'matched sovereign AI India terms', matched_terms: ['sovereign ai', 'indiaai'] }); for (const t of tracks) { const terms = uniq([t.title, ...t.watch_entities, ...t.seed_queries, ...t.source_classes].flatMap(words)); const matched = terms.filter(term => norm(text).includes(term)).slice(0, 8); if (matched.length >= 2 && !links.some(l => l.topic_id === t.id)) links.push({ topic_id: t.id, reason: 'matched TopicTrack terms', matched_terms: matched }); } return links.slice(0, 5); }
+
+// ---------------------------------------------------------------------------
+// GBrain page writing for remember/act decisions
+// ---------------------------------------------------------------------------
+
+export interface WriteBookmarkPagesOptions {
+  decisions: BookmarkDeepDecision[];
+  engine: BrainEngine;
+  now?: Date;
+}
+
+export interface WriteBookmarkPagesResult {
+  ok: boolean;
+  pages_written: number;
+  skipped_non_actionable: number;
+  errors: string[];
+}
+
+/**
+ * Write "remember" and "act" bookmark decisions as GBrain pages at:
+ *   wiki/sources/bookmarks/{platform}/{author}/{slug}
+ *
+ * "investigate" decisions are NOT written as pages (they stay as work items).
+ * This preserves the review-only safety boundary while making actionable
+ * bookmarks permanently discoverable.
+ */
+export async function writeBookmarkPagesAsBrainPages(
+  options: WriteBookmarkPagesOptions,
+): Promise<WriteBookmarkPagesResult> {
+  const { decisions, engine } = options;
+  const now = options.now || new Date();
+  const errors: string[] = [];
+  let pagesWritten = 0;
+  let skipped = 0;
+
+  for (const decision of decisions) {
+    if (decision.decision !== 'remember' && decision.decision !== 'act') {
+      skipped++;
+      continue;
+    }
+
+    try {
+      const slug = slugForBookmarkDeepDecision(decision);
+      const content = buildBookmarkPageContent(decision, now);
+      const existing = await engine.getPage(slug);
+
+      if (existing) {
+        // Upsert: preserve existing timeline, update content
+        await engine.putPage(slug, {
+          type: existing.type,
+          title: existing.title,
+          compiled_truth: content.body,
+          timeline: existing.timeline,
+          frontmatter: {
+            ...existing.frontmatter,
+            ...content.frontmatter,
+            updated: now.toISOString(),
+            decision: decision.decision,
+            score: decision.score,
+          },
+        });
+      } else {
+        // Create new page
+        await engine.putPage(slug, {
+          type: 'note',
+          title: content.title,
+          compiled_truth: content.body,
+          timeline: '',
+          frontmatter: {
+            ...content.frontmatter,
+            created: now.toISOString().split('T')[0],
+            updated: now.toISOString(),
+            source: 'bookmark-deep-radar',
+            decision: decision.decision,
+            score: decision.score,
+            canonical_url: decision.canonical_url,
+            platform: decision.platform,
+            privacy_tier: decision.privacy_tier,
+          },
+        });
+      }
+
+      // Add timeline entry for this capture
+      try {
+        await engine.addTimelineEntry(slug, {
+          date: now.toISOString().split('T')[0] ?? '',
+          summary: `Bookmarked via deep-radar: decision=${decision.decision}, score=${decision.score}`,
+          source: 'bookmark-deep-radar',
+        });
+      } catch { /* timeline add is best-effort */ }
+
+      pagesWritten++;
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      errors.push(`Failed to write page for ${decision.id}: ${msg}`);
+    }
+  }
+
+  return { ok: errors.length === 0, pages_written: pagesWritten, skipped_non_actionable: skipped, errors };
+}
+
+function slugForBookmarkDeepDecision(decision: BookmarkDeepDecision): string {
+  const platform = decision.platform || 'web';
+  const author = extractAuthorFromUrl(decision.canonical_url || decision.url, platform);
+  const slugPart = extractSlugPart(decision.canonical_url || decision.url, decision.id);
+  return `wiki/sources/bookmarks/${platform}/${author}/${slugPart}`;
+}
+
+function extractAuthorFromUrl(url: string, platform: string): string {
+  try {
+    const u = new URL(url);
+    const path = u.pathname.replace(/^\//, '').replace(/\/$/, '');
+    const parts = path.split('/').filter(Boolean);
+
+    if (platform === 'x' || platform === 'twitter') {
+      // x.com/elonmusk/status/1234567890 -> elonmusk
+      return parts[0]?.replace(/[^a-zA-Z0-9_]/g, '') || 'unknown';
+    }
+    if (platform === 'linkedin') {
+      // linkedin.com/in/johndoe or linkedin.com/company/acme -> johndoe or acme
+      const idx = parts.findIndex(p => p === 'in' || p === 'company');
+      return idx >= 0 ? (parts[idx + 1]?.replace(/[^a-zA-Z0-9\-]/g, '') || 'unknown') : (parts[0]?.replace(/[^a-zA-Z0-9\-]/g, '') || 'unknown');
+    }
+    if (platform === 'github') {
+      // github.com/owner/repo -> owner
+      return parts[0]?.replace(/[^a-zA-Z0-9\-]/g, '') || 'unknown';
+    }
+    // Generic: first path component
+    return parts[0]?.replace(/[^a-zA-Z0-9\-]/g, '') || 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+function extractSlugPart(url: string, fallbackId: string): string {
+  try {
+    const u = new URL(url);
+    const parts = u.pathname.replace(/^\//, '').replace(/\/$/, '').split('/').filter(Boolean);
+    if (parts.length >= 2) {
+      const last = parts[parts.length - 1];
+      // For X status IDs, use the ID directly
+      if (/^\d+$/.test(last)) return last;
+      // Otherwise use the last meaningful segment
+      return last.replace(/[^a-zA-Z0-9\-]/g, '').slice(0, 60);
+    }
+    // Fallback to hostname + hash of path
+    const hash = createHash('sha256').update(u.pathname).digest('hex').slice(0, 12);
+    return `${u.hostname.replace(/[^a-zA-Z0-9]/g, '')}-${hash}`;
+  } catch {
+    return fallbackId.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+  }
+}
+
+interface PageContentResult {
+  title: string;
+  body: string;
+  frontmatter: Record<string, unknown>;
+}
+
+function buildBookmarkPageContent(decision: BookmarkDeepDecision, now: Date): PageContentResult {
+  const date = now.toISOString().slice(0, 10);
+  const score = decision.score;
+  const decisionType = decision.decision;
+  const sourceClass = decision.source_class || 'unknown';
+
+  // Build key spans section
+  const keySpans = decision.evidence_refs
+    .map(ref => ref.quote)
+    .filter(Boolean)
+    .slice(0, 4)
+    .map(q => `> ${q.replace(/\n/g, ' ').slice(0, 300)}`)
+    .join('\n\n');
+
+  // Build topic links section
+  const topicSection = decision.topic_links.length
+    ? `## Topic Links\n\n${decision.topic_links.map(t => `- [[${t.topic_id}]] — ${t.reason}`).join('\n')}\n`
+    : '';
+
+  // Build summary section
+  const summarySection = decision.summary
+    ? `## Summary\n\n${decision.summary}\n`
+    : '';
+
+  // Build recommended action
+  const actionSection = decision.recommended_action
+    ? `## Recommended Action\n\n${decision.recommended_action}\n`
+    : '';
+
+  const body = `# ${decision.title}\n\n**Platform:** ${decision.platform} | **Decision:** ${decisionType} | **Score:** ${score}\n**Captured:** ${date} | **Source Class:** ${sourceClass}\n\n${summarySection}${keySpans ? `## Key Spans\n\n${keySpans}\n` : ''}${topicSection}${actionSection}## Metadata\n\n- Decision ID: \`${decision.id}\`\n- Canonical URL: ${decision.canonical_url || decision.url}\n- Dedupe Key: \`${decision.dedupe_key}\`\n- Privacy Tier: \`${decision.privacy_tier}\`\n- Reason: ${decision.reason}\n\n---\n*Auto-generated by bookmark-deep-radar. Do not edit manually.*\n`;
+
+  return {
+    title: decision.title,
+    body,
+    frontmatter: {
+      type: 'note',
+      source: 'bookmark-deep-radar',
+      decision: decisionType,
+      score,
+      platform: decision.platform,
+      source_class: sourceClass,
+      canonical_url: decision.canonical_url || decision.url,
+      privacy_tier: decision.privacy_tier,
+    },
+  };
+}

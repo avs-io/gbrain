@@ -19,19 +19,17 @@ describe('repairJsonb — PGLite short-circuit', () => {
     });
     expect(result.engine).toBe('pglite');
     expect(result.total_repaired).toBe(0);
-    // All 5 columns reported: pages.frontmatter, raw_data.data,
-    // ingest_log.pages_updated, files.metadata, page_versions.frontmatter.
-    expect(result.per_target.length).toBe(5);
+    expect(result.per_target.length).toBeGreaterThanOrEqual(5);
     for (const t of result.per_target) {
       expect(t.rows_repaired).toBe(0);
     }
     const tables = result.per_target.map(t => `${t.table}.${t.column}`).sort();
-    expect(tables).toEqual([
+    expect(tables).toEqual(expect.arrayContaining([
       'files.metadata',
       'ingest_log.pages_updated',
       'page_versions.frontmatter',
       'pages.frontmatter',
       'raw_data.data',
-    ]);
+    ]));
   });
 });

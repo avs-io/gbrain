@@ -7,6 +7,38 @@ import { validateProposalForPromotion } from '../core/ai/proposal-promotion-gate
 import { verifyClaimSupport } from '../core/ai/claim-support-verifier.ts';
 import { runLocalIntelligenceJob } from '../core/ai/local-runner.ts';
 import type { PrivacyTier, WorkKind } from '../core/ai/privacy-policy.ts';
+import type { ModelCallAuditInput, ModelCallPrivacy } from '../core/ai/model-call-audit.ts';
+
+function toAuditPrivacy(privacy: PrivacyTier): ModelCallPrivacy {
+  if (privacy === 'P0') return 'P0_PRIVATE_RAW';
+  if (privacy === 'P1') return 'P1_PRIVATE';
+  if (privacy === 'P2') return 'P2_PRIVATE';
+  return 'P3_PUBLIC';
+}
+
+function buildAuditInput(input: {
+  provider: string;
+  model?: string;
+  prompt: string;
+  privacy: PrivacyTier;
+  namespace: string;
+  input_refs: string[];
+  output_refs?: string[];
+  status?: 'recorded' | 'completed' | 'failed' | 'redacted';
+  job_key?: string;
+}): ModelCallAuditInput {
+  return {
+    provider: input.provider,
+    model: input.model,
+    prompt: input.prompt,
+    privacy: toAuditPrivacy(input.privacy),
+    namespace: input.namespace,
+    input_refs: input.input_refs,
+    output_refs: input.output_refs,
+    status: input.status,
+    job_key: input.job_key,
+  };
+}
 
 function parse(args: string[]): { kind?: WorkKind; privacy?: PrivacyTier; json: boolean; allowCloudEscalation: boolean; queuePath?: string; namespace?: string; inputRef?: string; provider?: string; status?: string; id?: string; dryRun: boolean; yes: boolean; spanId?: string; claim?: string; atomType?: string; sensitivity?: string; subjectEntities?: string[]; quote?: string; explanation?: string; jobJson?: string; proposalJson?: string; prompt?: string; promptFile?: string } {
   let kind: WorkKind | undefined;
@@ -89,7 +121,21 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
     if (action === 'prepare') {
       if (!flags.kind || !flags.privacy || (!flags.prompt && !flags.promptFile)) throw new Error('Usage: gbrain ai provider prepare --kind <kind> --privacy <P0|P1|P2|P3> --prompt <text>|--prompt-file <file> [--allow-cloud-escalation] [--json]');
       const prompt = flags.promptFile ? await readFile(flags.promptFile, 'utf8') : flags.prompt!;
-      const result = prepareProviderRun({ kind: flags.kind, privacy: flags.privacy, allowCloudEscalation: flags.allowCloudEscalation, prompt });
+      const route = routeModel({ kind: flags.kind, privacy: flags.privacy, allowCloudEscalation: flags.allowCloudEscalation });
+      const result = prepareProviderRun({
+        kind: flags.kind,
+        privacy: flags.privacy,
+        allowCloudEscalation: flags.allowCloudEscalation,
+        prompt,
+        audit: buildAuditInput({
+          provider: route.preferred_provider,
+          prompt,
+          privacy: flags.privacy,
+          namespace: 'ai.provider.prepare',
+          input_refs: [`prompt:${flags.kind}:${flags.privacy}`],
+          status: 'recorded',
+        }),
+      });
       console.log(JSON.stringify(result, null, 2));
       return;
     }
@@ -152,7 +198,22 @@ export async function runAiCommand(_engine: unknown, args: string[]): Promise<vo
         return listed.jobs.find(entry => entry.id === flags.id);
       })();
       if (!job) throw new Error('job not found');
-      const result = runLocalIntelligenceJob(job, { queuePath });
+      const privacy = (job.privacy_tier === 'P0' || job.privacy_tier === 'P1' || job.privacy_tier === 'P2' || job.privacy_tier === 'P3') ? job.privacy_tier : 'P1';
+      const prompt = `local-intelligence-job:${job.work_kind}:${job.input_ref}`;
+      const result = runLocalIntelligenceJob(job, {
+        queuePath,
+        audit: buildAuditInput({
+          provider: 'qwen-local',
+          model: 'qwen3-local',
+          prompt,
+          privacy,
+          namespace: job.namespace,
+          input_refs: [job.input_ref],
+          output_refs: [`job:${job.id}:local-runner-envelope`],
+          status: 'completed',
+          job_key: job.id,
+        }),
+      });
       if (flags.yes && queuePath && job.id) {
         updateJob({ id: job.id, status: result.status === 'succeeded' ? 'succeeded' : result.status === 'failed' ? 'failed' : 'queued', output_ref: JSON.stringify(result), error: result.errors.length ? result.errors.join('; ') : null, completed_at: new Date().toISOString() }, { path: queuePath });
       }

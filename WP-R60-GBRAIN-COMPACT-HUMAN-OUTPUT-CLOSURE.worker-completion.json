@@ -1,0 +1,70 @@
+{
+  "schema": "lifeos.worker_completion.v1",
+  "work_item_id": "WP-R60-GBRAIN-COMPACT-HUMAN-OUTPUT-CLOSURE",
+  "status": "completed",
+  "artifact_path": "projects/openclaw-runtime-event/taskflow/pro-reset-audit/artifacts/WP-R60-GBRAIN-COMPACT-HUMAN-OUTPUT-CLOSURE.md",
+  "mutation_performed": true,
+  "mutation_scope": "local_artifact_files_only",
+  "external_action": false,
+  "trusted_memory_write": false,
+  "child_sessions_spawned": false,
+  "recommended_next_state": "reducer_pending",
+  "summary": "Implemented compact human rendering for deterministic-v2 answer output on --compact, bounded by maxClaims/maxListItems and citation density settings, while preserving strict/default human output and full JSON envelope detail. Added deterministic-answer smoke coverage for compact human behavior and strict-mode unchanged assertion.",
+  "tests_run": [
+    {
+      "command": "bun test test/answer/deterministic-answer-smoke.test.ts --timeout=60000",
+      "exit_code": 0,
+      "output": "6 pass, 0 fail"
+    },
+    {
+      "command": "bun test test/answer/*.test.ts --timeout=60000",
+      "exit_code": 0,
+      "output": "73 pass, 0 fail"
+    },
+    {
+      "command": "bun run typecheck",
+      "exit_code": 0
+    }
+  ],
+  "evidence": {
+    "scoped_counts": {
+      "total": 1,
+      "PASS": 1,
+      "PARTIAL": 0,
+      "FAIL": 0,
+      "not_ready": 0
+    },
+    "scoped_rows": [
+      "DET-06"
+    ],
+    "notes": [
+      "No external action performed.",
+      "No trusted memory writes or child sessions.",
+      "JSON envelope output remained full-detail for deterministic-v2 --json.",
+      "Compact human output bounded and excludes quote-hash dumps."
+    ]
+  },
+  "row_recommendations": [
+    {
+      "row_id": "DET-06",
+      "title": "PR6 promotion/compact output discipline",
+      "status": "PASS",
+      "current_status": "PARTIAL",
+      "recommendation": "PASS",
+      "evidence": [
+        "Updated src/commands/answer.ts compact rendering branch for citationDensity='compact'.",
+        "Added compact human output smoke test in test/answer/deterministic-answer-smoke.test.ts.",
+        "Verified strict/default human output remains unchanged in compact human tests without --compact.",
+        "Ran required answer/test gates and typecheck with no failures."
+      ],
+      "files": [
+        "gbrain/src/commands/answer.ts",
+        "gbrain/test/answer/deterministic-answer-smoke.test.ts"
+      ]
+    }
+  ],
+  "pass_rows": [
+    "DET-06"
+  ],
+  "blockers": []
+}

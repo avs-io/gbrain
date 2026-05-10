@@ -39,6 +39,15 @@ function scoreShape(frame: QueryFrame, id: AnswerShapeId): number {
       if (has(frame, 'current_state')) score += 1;
       return score;
     }
+    case 'person_or_meeting_prebrief': {
+      let score = 0;
+      if (/\b(?:prebrief|meeting|walked in|who is|person)\b/i.test(frame.normalizedQuery)) score += 5;
+      else return 0;
+      if (has(frame, 'relationship')) score += 2;
+      if (has(frame, 'current_state')) score += 1;
+      if (frame.entities.length > 0) score += 1;
+      return score;
+    }
     case 'general_multi_part_recall':
       return frame.cues.multiPart ? 1 : 0;
   }
@@ -49,6 +58,7 @@ const TIEBREAK_ORDER: AnswerShapeId[] = [
   'protocol_or_stack_change',
   'decision_arc',
   'concept_evolution',
+  'person_or_meeting_prebrief',
   'general_multi_part_recall',
 ];
 

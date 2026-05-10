@@ -1,0 +1,36 @@
+{
+  "query": "What was the idea before Project Atlas and why was Project Atlas not pursued?",
+  "status": "hit",
+  "evidence": [
+    {
+      "span_id": "gbs1:default:sources/test/project-atlas#compiled_truth:L1-L3",
+      "source_id": "default",
+      "slug": "sources/test/project-atlas",
+      "title": "Project Atlas",
+      "section": "compiled_truth",
+      "start_line": 1,
+      "end_line": 3,
+      "quote": "The prior option was Bridge Layer. Project Atlas was rejected due to low distribution leverage. Later it became a module on the stronger base rail.",
+      "quote_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "line_basis": "stored_section",
+      "matched_by": "exact",
+      "score": 0.9
+    },
+    {
+      "span_id": "gbs1:default:sources/test/unrelated-tea#compiled_truth:L1-L2",
+      "source_id": "default",
+      "slug": "sources/test/unrelated-tea",
+      "title": "Unrelated Tea",
+      "section": "compiled_truth",
+      "start_line": 1,
+      "end_line": 2,
+      "quote": "Green tea tasting notes were unrelated to the Project Atlas decision.",
+      "quote_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "line_basis": "stored_section",
+      "matched_by": "exact",
+      "score": 0.8
+    }
+  ],
+  "warnings": [],
+  "integration": { "search_source": "direct" }
+}

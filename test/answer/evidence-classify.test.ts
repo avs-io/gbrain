@@ -38,4 +38,23 @@ describe('evidence signal classifier', () => {
     const signals = classifyEvidenceSignals([ev('cccc', 'Green tea tastes bitter in the morning.')], frame);
     expect(signals.every(s => s.role === 'distractor' || s.confidence === 'low')).toBe(true);
   });
+
+  test('requires query/aspect overlap or safe-listed measurement for non-distractor roles', () => {
+    const rationaleFrame = buildQueryFrame('Why did Project Atlas change?');
+    const rationaleSignals = classifyEvidenceSignals([
+      ev('eeee', 'A random vendor was risky because its docs were unclear. Project Atlas changed because the old design was too static.'),
+    ], rationaleFrame);
+
+    expect(rationaleSignals.find(s => s.text.includes('random vendor'))?.role).toBe('decision_rationale');
+    expect(rationaleSignals.find(s => s.text.includes('random vendor'))?.aspectOverlap).toContain('rationale');
+    expect(rationaleSignals.find(s => s.text.includes('Project Atlas'))?.queryOverlapTerms).toEqual(expect.arrayContaining(['atlas', 'project']));
+
+    const summaryFrame = buildQueryFrame('What changed in Project Atlas?');
+    const summarySignals = classifyEvidenceSignals([ev('ffff', 'A random vendor was risky because its docs were unclear.')], summaryFrame);
+    expect(summarySignals.every(s => s.role === 'distractor')).toBe(true);
+
+    const measurementSignals = classifyEvidenceSignals([ev('gggg', 'Ferritin was 19.9 ng/mL.')], buildQueryFrame('What was the lab measurement?'));
+    expect(measurementSignals[0].role).toBe('measurement');
+    expect(measurementSignals[0].safeListed).toBe(true);
+  });
 });

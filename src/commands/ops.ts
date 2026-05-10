@@ -43,6 +43,7 @@ import {
 } from '../core/ops/liveness.ts';
 import { readBookmarkBatchFile, runBookmarkActionRadar } from '../core/ops/bookmark-action-radar.ts';
 import { readBookmarkDeepRadarInputFile, runBookmarkDeepRadar } from '../core/ops/bookmark-deep-radar.ts';
+import { runEnrichmentPipeline } from '../core/ops/bookmark-enrichment-writer.ts';
 import { readMeetingTranscriptFile, runMeetingTranscriptActions, writeMeetingTranscriptActionReport } from '../core/ops/meeting-transcript-actions.ts';
 import { buildOpportunityBriefReadySurface, readOpportunityRadarInputFile, recordOpportunityFeedback, runOpportunityRadar, writeOpportunityReport } from '../core/ops/opportunity-radar.ts';
 import { readOpportunityRadarV2JsonFile, readOpportunityRadarV2SurfaceFile, runOpportunityRadarV2, writeOpportunityRadarV2Report } from '../core/ops/opportunity-radar-v2.ts';
@@ -56,6 +57,7 @@ import {
   renderWeeklyStrategyMarkdown,
   writeBriefingSurface,
 } from '../core/ops/briefing-surfaces.ts';
+import type { BrainEngine } from '../core/engine.ts';
 
 function flagValue(args: string[], flag: string): string | undefined {
   const ix = args.indexOf(flag);
@@ -68,7 +70,7 @@ function printJson(v: unknown): void { console.log(JSON.stringify(v, null, 2)); 
 function storePath(args: string[]): string { return flagValue(args, '--store') || opsStorePath(); }
 function requireJson(args: string[]): void { if (!hasFlag(args, '--json')) return; }
 
-export async function runOpsCommand(_engine: unknown, args: string[]): Promise<void> {
+export async function runOpsCommand(_engine: BrainEngine | null, args: string[]): Promise<void> {
   const [sub, ...rest] = args;
   if (!sub || sub === '--help' || sub === '-h') {
     console.log(`gbrain ops init [--store <path>] [--json]
@@ -83,6 +85,8 @@ gbrain ops topic-tracks sync --file <topic_tracks.yaml> --json [--store <path>]
 gbrain ops scout cycle --topic-track <id> --input <public-sources.json> --json [--store <path>] [--out <report.json>]
 gbrain ops bookmarks radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--archive <decisions.jsonl>] [--out <report.json>]
 gbrain ops bookmarks deep-radar --input <bookmarks.json|bookmarks.md> --json [--store <path>] [--artifact-store <path>] [--out <report.json>]
+gbrain ops bookmarks enrichment run [--limit N] [--surface-min-score N] [--interrupt-min-score N] [--json] [--out <result.json>]
+  # Run full pipeline: queue + status → enriched JSON → deep-radar → GBrain pages (remember/act only)
 gbrain ops meetings extract --input <transcript.md|txt> --json [--store <path>] [--archive <reports.jsonl>] [--actions-store <action-proposals.jsonl>] [--out <report.json>]
 gbrain ops opportunities radar --input <signals.json> --json [--store <path>] [--out <report.json>]
 gbrain ops opportunities v2 --topic <id> [--from-state <file>] [--from-delta <file>] [--from-bookmarks <file>] [--from-reduction <file>] [--from-memory-context <file>] --json [--store <ops.jsonl>] [--artifact-store <opportunities.jsonl>] [--out <report.json>]
@@ -277,6 +281,35 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
     throw new Error('gbrain ops bookmarks supports: radar, deep-radar');
   }
 
+  if (sub === 'enrichment') {
+    const action = rest[0];
+    const actionArgs = rest.slice(1);
+    if (action !== 'run') throw new Error('gbrain ops bookmarks enrichment supports: run');
+    const engine = _engine as BrainEngine | null;
+    if (!engine) {
+      // Fall back: run without page-writing (engine not available in `ops` context)
+      console.error('Note: BrainEngine not available — running in dry-run mode (pages will NOT be written)');
+    }
+    const limit = flagValue(actionArgs, '--limit');
+    const surfaceMin = flagValue(actionArgs, '--surface-min-score');
+    const interruptMin = flagValue(actionArgs, '--interrupt-min-score');
+    const result = await runEnrichmentPipeline({
+      engine: engine!,
+      limit: limit ? Number(limit) : undefined,
+      surfaceMinScore: surfaceMin ? Number(surfaceMin) : undefined,
+      interruptMinScore: interruptMin ? Number(interruptMin) : undefined,
+    });
+    const out = flagValue(actionArgs, '--out');
+    if (out) writeFileSync(out, JSON.stringify(result, null, 2) + '\n');
+    if (hasFlag(actionArgs, '--json') || out) printJson(result);
+    else {
+      console.log(`queue_items=${result.total_queue_items}\tprocessed=${result.processed}\tenriched=${result.enriched_found}\tpages_written=${result.pages_written}\twork_items=${result.work_items_created}`);
+      for (const [k, v] of Object.entries(result.decisions_by_type)) console.log(`  ${k}: ${v}`);
+      if (result.errors.length) console.error(`errors: ${result.errors.join('; ')}`);
+    }
+    return;
+  }
+
   if (sub === 'meetings' || sub === 'meeting-transcripts') {
     const action = rest[0];
     const actionArgs = rest.slice(1);
@@ -359,7 +392,9 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       const input = flagValue(actionArgs, '--input');
       if (!input) throw new Error('gbrain ops opportunities radar requires --input <signals.json>');
       const parsed = readOpportunityRadarInputFile(input);
-      const report = runOpportunityRadar({ ...parsed, storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : parsed.topN });
+      const now = flagValue(actionArgs, '--now') ? new Date(String(flagValue(actionArgs, '--now'))) : undefined;
+      if (now && Number.isNaN(now.getTime())) throw new Error('gbrain ops opportunities radar --now must be an ISO date');
+      const report = runOpportunityRadar({ ...parsed, storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : parsed.topN, now });
       const out = flagValue(actionArgs, '--out');
       if (out) writeOpportunityReport(out, report);
       if (hasFlag(actionArgs, '--json') || out) printJson(report);
@@ -367,7 +402,9 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       return;
     }
     if (action === 'brief-ready' || action === 'brief') {
-      const surface = buildOpportunityBriefReadySurface({ storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : undefined });
+      const now = flagValue(actionArgs, '--now') ? new Date(String(flagValue(actionArgs, '--now'))) : undefined;
+      if (now && Number.isNaN(now.getTime())) throw new Error('gbrain ops opportunities brief-ready --now must be an ISO date');
+      const surface = buildOpportunityBriefReadySurface({ storePath: storePath(actionArgs), topN: flagValue(actionArgs, '--limit') ? Number(flagValue(actionArgs, '--limit')) : undefined, now });
       const out = flagValue(actionArgs, '--out');
       if (out) writeOpportunityReport(out, surface);
       if (hasFlag(actionArgs, '--json') || out) printJson(surface);
@@ -379,7 +416,9 @@ Internal-only durable ops kernel for Programs, WorkItems, Runs, Leases, Artifact
       if (!candidateId) throw new Error('gbrain ops opportunities feedback requires <candidate-id>');
       const value = hasFlag(actionArgs, '--useful') ? 'useful' : hasFlag(actionArgs, '--not-useful') ? 'not_useful' : undefined;
       if (!value) throw new Error('gbrain ops opportunities feedback requires --useful or --not-useful');
-      const feedback = recordOpportunityFeedback({ candidateId, value, reason: flagValue(actionArgs, '--reason'), storePath: storePath(actionArgs) });
+      const now = flagValue(actionArgs, '--now') ? new Date(String(flagValue(actionArgs, '--now'))) : undefined;
+      if (now && Number.isNaN(now.getTime())) throw new Error('gbrain ops opportunities feedback --now must be an ISO date');
+      const feedback = recordOpportunityFeedback({ candidateId, value, reason: flagValue(actionArgs, '--reason'), storePath: storePath(actionArgs), now });
       if (hasFlag(actionArgs, '--json')) printJson({ ok: true, schema: 'gbrain.ops.opportunity_feedback.result.v1', feedback });
       else console.log(`${feedback.candidate_id}\t${feedback.value}\tfalse_positive=${feedback.false_positive}`);
       return;

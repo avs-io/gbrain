@@ -4,10 +4,24 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { prepareProviderRun } from '../../src/core/ai/provider-runner.ts';
+import type { ModelCallAuditInput } from '../../src/core/ai/model-call-audit.ts';
+
+function audit(overrides: Partial<ModelCallAuditInput> = {}): ModelCallAuditInput {
+  return {
+    provider: 'qwen-local',
+    model: 'qwen3-local',
+    prompt: 'provider runner test prompt',
+    privacy: 'P2_PRIVATE',
+    namespace: 'test.provider',
+    input_refs: ['ref:input:provider-runner'],
+    status: 'recorded',
+    ...overrides,
+  };
+}
 
 describe('provider runner skeleton', () => {
   test('P0 rejects and never leaks raw prompt', () => {
-    const out = prepareProviderRun({ kind: 'source_normalize', privacy: 'P0', prompt: 'Chief private note: secret', allowCloudEscalation: true });
+    const out = prepareProviderRun({ kind: 'source_normalize', privacy: 'P0', prompt: 'Chief private note: secret', allowCloudEscalation: true, audit: audit({ prompt: 'Chief private note: secret', privacy: 'P0_PRIVATE_RAW' }) });
     expect(out.ok).toBe(false);
     expect(out.decision).toBe('reject');
     expect(JSON.stringify(out)).not.toContain('Chief private note: secret');
@@ -15,12 +29,12 @@ describe('provider runner skeleton', () => {
   });
 
   test('P1 redacts and requires escalation for cloud', () => {
-    const local = prepareProviderRun({ kind: 'world_scout', privacy: 'P1', prompt: 'private source text', allowCloudEscalation: false });
+    const local = prepareProviderRun({ kind: 'world_scout', privacy: 'P1', prompt: 'private source text', allowCloudEscalation: false, audit: audit({ prompt: 'private source text', privacy: 'P1_PRIVATE' }) });
     expect(local.decision).toBe('local_only');
     expect(local.redacted_prompt).toBe('[redacted-private-context]');
     expect(local.provider_request).toBeUndefined();
 
-    const escalated = prepareProviderRun({ kind: 'world_scout', privacy: 'P1', prompt: 'private source text', allowCloudEscalation: true });
+    const escalated = prepareProviderRun({ kind: 'world_scout', privacy: 'P1', prompt: 'private source text', allowCloudEscalation: true, audit: audit({ prompt: 'private source text', privacy: 'P1_PRIVATE' }) });
     expect(escalated.ok).toBe(true);
     expect(escalated.decision).toBe('cloud_allowed');
     expect(escalated.provider_request?.prompt).toBe('[redacted-private-context]');
@@ -28,7 +42,7 @@ describe('provider runner skeleton', () => {
   });
 
   test('P2/P3 build dry-run cloud envelope only', () => {
-    const out = prepareProviderRun({ kind: 'code_pr_review', privacy: 'P2', prompt: 'review this patch', allowCloudEscalation: false });
+    const out = prepareProviderRun({ kind: 'code_pr_review', privacy: 'P2', prompt: 'review this patch', allowCloudEscalation: false, audit: audit({ prompt: 'review this patch', provider: 'codex' }) });
     expect(out.dry_run).toBe(true);
     expect(out.decision).toBe('cloud_allowed');
     expect(out.provider_request?.provider).toBe('codex');
@@ -36,7 +50,7 @@ describe('provider runner skeleton', () => {
   });
 
   test('P1 cloud escalation emits only sanitized provider requests', () => {
-    const out = prepareProviderRun({ kind: 'bookmark_enrich', privacy: 'P1', prompt: 'private relationship detail', allowCloudEscalation: true });
+    const out = prepareProviderRun({ kind: 'bookmark_enrich', privacy: 'P1', prompt: 'private relationship detail', allowCloudEscalation: true, audit: audit({ prompt: 'private relationship detail', privacy: 'P1_PRIVATE', provider: 'minimax-m27' }) });
     expect(out.ok).toBe(true);
     expect(out.provider_request?.provider).toBe('minimax-m27');
     expect(out.provider_request?.prompt).toBe('[redacted-private-context]');

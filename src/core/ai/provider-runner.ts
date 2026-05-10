@@ -1,9 +1,11 @@
 import { routeModel, type RouteModelInput } from './model-router.ts';
 import { canSendLegacyPrivacyToProvider, redactRoutePrompt, summarizeRoutePrompt, type PrivacyTier, type RouteDecision } from './privacy-policy.ts';
 import type { WorkKind } from './privacy-policy.ts';
+import { requireEntrypointAudit, type ModelCallAuditInput } from './model-call-audit.ts';
 
 export interface ProviderRunInput extends RouteModelInput {
   prompt: string;
+  audit: ModelCallAuditInput;
 }
 
 export interface ProviderRunEnvelope {
@@ -34,6 +36,7 @@ function baseGuardrails(privacy: PrivacyTier): string[] {
 }
 
 export function prepareProviderRun(input: ProviderRunInput): ProviderRunEnvelope {
+  requireEntrypointAudit({ entrypoint: 'prepareProviderRun', audit: input.audit });
   const route = routeModel(input);
   const guardrails = baseGuardrails(input.privacy);
   const reasons: string[] = [...route.warnings];

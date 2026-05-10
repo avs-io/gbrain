@@ -987,7 +987,8 @@ export async function registerBuiltinHandlers(worker: MinionWorker, engine: Brai
   // cost-ceremony env flag needed.
   const { makeSubagentHandler } = await import('../core/minions/handlers/subagent.ts');
   const { subagentAggregatorHandler } = await import('../core/minions/handlers/subagent-aggregator.ts');
-  worker.register('subagent', makeSubagentHandler({ engine }));
+  const { withContextPackBinding } = await import('../../ops/gbrain/dispatch-context-bind.mjs');
+  worker.register('subagent', withContextPackBinding(makeSubagentHandler({ engine }), { engine }));
   worker.register('subagent_aggregator', subagentAggregatorHandler);
   process.stderr.write('[minion worker] subagent handlers enabled\n');
 

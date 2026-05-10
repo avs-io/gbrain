@@ -22,6 +22,33 @@ import { validateSlug, contentHash, rowToPage, rowToChunk, rowToSearchResult, pa
 import { resolveBoostMap, resolveHardExcludes } from './search/source-boost.ts';
 import { buildSourceFactorCase, buildHardExcludeClause } from './search/sql-ranking.ts';
 
+function normalizeJsonValueForCast(value: unknown): unknown {
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value) as unknown;
+    } catch {
+      return value;
+    }
+  }
+  if (Array.isArray(value)) return value.map(v => normalizeJsonValueForCast(v));
+  return value;
+}
+
+/**
+ * postgres.js double-encodes string parameters when SQL casts them to
+ * json/jsonb (`$1::jsonb`). Normalize executeRaw callers that pass
+ * JSON.stringify(value) so Postgres stores objects/arrays, not JSONB strings.
+ */
+export function normalizeJsonCastParams(sql: string, params?: unknown[]): unknown[] | undefined {
+  if (!params) return params;
+  const jsonParamIndexes = new Set<number>();
+  const re = /\$(\d+)\s*::\s*jsonb?(?:\[\])?/gi;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(sql)) !== null) jsonParamIndexes.add(Number(match[1]) - 1);
+  if (jsonParamIndexes.size === 0) return params;
+  return params.map((p, i) => jsonParamIndexes.has(i) ? normalizeJsonValueForCast(p) : p);
+}
+
 // CONNECTION_ERROR_PATTERNS / isConnectionError were used by the per-call
 // executeRaw retry that #406 originally shipped. Eng-review D3 dropped that
 // retry as unsound (regex idempotence-boundary doesn't hold for writable
@@ -139,9 +166,10 @@ export class PostgresEngine implements BrainEngine {
     try {
       const conn: ReservedConnection = {
         async executeRaw<R = Record<string, unknown>>(query: string, params?: unknown[]): Promise<R[]> {
+          const normalized = normalizeJsonCastParams(query, params);
           const rows = params === undefined
             ? await reserved.unsafe(query)
-            : await reserved.unsafe(query, params as Parameters<typeof reserved.unsafe>[1]);
+            : await reserved.unsafe(query, normalized as Parameters<typeof reserved.unsafe>[1]);
           return rows as unknown as R[];
         },
       };
@@ -1412,7 +1440,8 @@ export class PostgresEngine implements BrainEngine {
 
   async executeRaw<T = Record<string, unknown>>(sql: string, params?: unknown[]): Promise<T[]> {
     const conn = this.sql;
-    return conn.unsafe(sql, params as Parameters<typeof conn.unsafe>[1]) as unknown as T[];
+    const normalized = normalizeJsonCastParams(sql, params);
+    return conn.unsafe(sql, normalized as Parameters<typeof conn.unsafe>[1]) as unknown as T[];
     // Pre-#406 behavior: throw on any error including connection death.
     // Per-call auto-retry is not safe here because executeRaw is also used
     // for non-transactional mutations (DELETE/UPDATE/INSERT in sources.ts,
@@ -1444,14 +1473,14 @@ export class PostgresEngine implements BrainEngine {
       const fromQual = resolved.map(e => e.from_symbol_qualified);
       const toQual = resolved.map(e => e.to_symbol_qualified);
       const edgeTypes = resolved.map(e => e.edge_type);
-      const metas = resolved.map(e => JSON.stringify(e.edge_metadata ?? {}));
+      const metas = resolved.map(e => e.edge_metadata ?? {});
       const sources = resolved.map(e => e.source_id ?? null);
       const res = await sql`
         INSERT INTO code_edges_chunk (from_chunk_id, to_chunk_id, from_symbol_qualified, to_symbol_qualified, edge_type, edge_metadata, source_id)
         SELECT * FROM unnest(
           ${fromIds}::int[], ${toIds}::int[],
           ${fromQual}::text[], ${toQual}::text[],
-          ${edgeTypes}::text[], ${metas}::jsonb[],
+          ${edgeTypes}::text[], ${metas as any}::jsonb[],
           ${sources}::text[]
         )
         ON CONFLICT (from_chunk_id, to_chunk_id, edge_type) DO NOTHING
@@ -1464,14 +1493,14 @@ export class PostgresEngine implements BrainEngine {
       const fromQual = unresolved.map(e => e.from_symbol_qualified);
       const toQual = unresolved.map(e => e.to_symbol_qualified);
       const edgeTypes = unresolved.map(e => e.edge_type);
-      const metas = unresolved.map(e => JSON.stringify(e.edge_metadata ?? {}));
+      const metas = unresolved.map(e => e.edge_metadata ?? {});
       const sources = unresolved.map(e => e.source_id ?? null);
       const res = await sql`
         INSERT INTO code_edges_symbol (from_chunk_id, from_symbol_qualified, to_symbol_qualified, edge_type, edge_metadata, source_id)
         SELECT * FROM unnest(
           ${fromIds}::int[],
           ${fromQual}::text[], ${toQual}::text[],
-          ${edgeTypes}::text[], ${metas}::jsonb[],
+          ${edgeTypes}::text[], ${metas as any}::jsonb[],
           ${sources}::text[]
         )
         ON CONFLICT (from_chunk_id, to_symbol_qualified, edge_type) DO NOTHING

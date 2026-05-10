@@ -614,6 +614,262 @@ CREATE TABLE IF NOT EXISTS gbrain_cycle_locks (
 );
 CREATE INDEX IF NOT EXISTS idx_cycle_locks_ttl ON gbrain_cycle_locks(ttl_expires_at);
 
+-- ============================================================
+-- Living Memory Intelligence Model — first-class DB surfaces
+-- ============================================================
+-- These tables persist the intelligence/memory objects that were previously
+-- emitted only as artifact-local JSON: source items, evidence spans, episodes,
+-- entities and mentions, claims + evidence/edges, memory atoms, scout runs and
+-- observations, and surfacing candidates. All JSONB columns default to real
+-- object/array values so downstream jsonb_typeof / GIN-style access keeps
+-- working on both Postgres and PGLite.
+CREATE TABLE IF NOT EXISTS source_items (
+  id             BIGSERIAL PRIMARY KEY,
+  source_id      TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  page_id        INTEGER     REFERENCES pages(id) ON DELETE SET NULL,
+  namespace      TEXT        NOT NULL DEFAULT 'personal',
+  privacy        TEXT        NOT NULL DEFAULT 'P2_PRIVATE',
+  source_type    TEXT        NOT NULL,
+  source_ref     TEXT        NOT NULL,
+  title          TEXT        NOT NULL DEFAULT '',
+  uri            TEXT,
+  author         TEXT,
+  captured_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  content_hash   TEXT,
+  metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT source_items_identity_unique UNIQUE (source_id, source_type, source_ref),
+  CONSTRAINT source_items_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_source_items_source_id ON source_items(source_id);
+CREATE INDEX IF NOT EXISTS idx_source_items_page_id ON source_items(page_id) WHERE page_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_source_items_captured_at ON source_items(captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_items_namespace_privacy ON source_items(namespace, privacy);
+
+CREATE TABLE IF NOT EXISTS evidence_spans (
+  id                BIGSERIAL PRIMARY KEY,
+  source_item_id    BIGINT      NOT NULL REFERENCES source_items(id) ON DELETE CASCADE,
+  page_id           INTEGER     REFERENCES pages(id) ON DELETE SET NULL,
+  chunk_id          INTEGER     REFERENCES content_chunks(id) ON DELETE SET NULL,
+  span_ref          TEXT        NOT NULL,
+  span_kind         TEXT        NOT NULL DEFAULT 'quote',
+  quote             TEXT        NOT NULL,
+  normalized_text   TEXT        NOT NULL DEFAULT '',
+  start_offset      INTEGER,
+  end_offset        INTEGER,
+  location          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT evidence_spans_ref_unique UNIQUE (source_item_id, span_ref),
+  CONSTRAINT evidence_spans_offsets_valid CHECK (
+    start_offset IS NULL OR end_offset IS NULL OR start_offset <= end_offset
+  ),
+  CONSTRAINT evidence_spans_location_object CHECK (jsonb_typeof(location) = 'object'),
+  CONSTRAINT evidence_spans_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_evidence_spans_source_item ON evidence_spans(source_item_id);
+CREATE INDEX IF NOT EXISTS idx_evidence_spans_page ON evidence_spans(page_id) WHERE page_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_evidence_spans_chunk ON evidence_spans(chunk_id) WHERE chunk_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS episodes (
+  id             BIGSERIAL PRIMARY KEY,
+  source_id      TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  title          TEXT        NOT NULL,
+  summary        TEXT        NOT NULL DEFAULT '',
+  started_at     TIMESTAMPTZ,
+  ended_at       TIMESTAMPTZ,
+  salience       DOUBLE PRECISION NOT NULL DEFAULT 0,
+  metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT episodes_time_order CHECK (started_at IS NULL OR ended_at IS NULL OR started_at <= ended_at),
+  CONSTRAINT episodes_salience_range CHECK (salience >= 0 AND salience <= 1),
+  CONSTRAINT episodes_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_episodes_source_time ON episodes(source_id, started_at DESC NULLS LAST);
+CREATE INDEX IF NOT EXISTS idx_episodes_salience ON episodes(salience DESC);
+
+CREATE TABLE IF NOT EXISTS entities (
+  id              BIGSERIAL PRIMARY KEY,
+  source_id       TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  entity_type     TEXT        NOT NULL,
+  canonical_name  TEXT        NOT NULL,
+  aliases         JSONB       NOT NULL DEFAULT '[]'::jsonb,
+  metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT entities_identity_unique UNIQUE (source_id, entity_type, canonical_name),
+  CONSTRAINT entities_aliases_array CHECK (jsonb_typeof(aliases) = 'array'),
+  CONSTRAINT entities_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_entities_source_type ON entities(source_id, entity_type);
+CREATE INDEX IF NOT EXISTS idx_entities_canonical_name ON entities(canonical_name);
+
+CREATE TABLE IF NOT EXISTS entity_mentions (
+  id                BIGSERIAL PRIMARY KEY,
+  entity_id         BIGINT      NOT NULL REFERENCES entities(id) ON DELETE CASCADE,
+  source_item_id    BIGINT      REFERENCES source_items(id) ON DELETE CASCADE,
+  evidence_span_id  BIGINT      REFERENCES evidence_spans(id) ON DELETE CASCADE,
+  page_id           INTEGER     REFERENCES pages(id) ON DELETE SET NULL,
+  surface_text      TEXT        NOT NULL,
+  mention_type      TEXT        NOT NULL DEFAULT 'observed',
+  confidence        DOUBLE PRECISION NOT NULL DEFAULT 1,
+  metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT entity_mentions_confidence_range CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT entity_mentions_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_entity_mentions_entity ON entity_mentions(entity_id);
+CREATE INDEX IF NOT EXISTS idx_entity_mentions_span ON entity_mentions(evidence_span_id) WHERE evidence_span_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_entity_mentions_source_item ON entity_mentions(source_item_id) WHERE source_item_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS claims (
+  id             BIGSERIAL PRIMARY KEY,
+  source_id      TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  statement      TEXT        NOT NULL,
+  claim_type     TEXT        NOT NULL DEFAULT 'observation',
+  status         TEXT        NOT NULL DEFAULT 'review_only',
+  confidence     DOUBLE PRECISION NOT NULL DEFAULT 0,
+  first_seen_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+  metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT claims_statement_unique UNIQUE (source_id, statement),
+  CONSTRAINT claims_confidence_range CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT claims_time_order CHECK (first_seen_at <= last_seen_at),
+  CONSTRAINT claims_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_claims_source_status ON claims(source_id, status);
+CREATE INDEX IF NOT EXISTS idx_claims_type ON claims(claim_type);
+CREATE INDEX IF NOT EXISTS idx_claims_last_seen ON claims(last_seen_at DESC);
+
+CREATE TABLE IF NOT EXISTS claim_evidence (
+  id                BIGSERIAL PRIMARY KEY,
+  claim_id          BIGINT      NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  evidence_span_id  BIGINT      NOT NULL REFERENCES evidence_spans(id) ON DELETE CASCADE,
+  source_item_id    BIGINT      REFERENCES source_items(id) ON DELETE CASCADE,
+  stance            TEXT        NOT NULL DEFAULT 'supports',
+  confidence        DOUBLE PRECISION NOT NULL DEFAULT 1,
+  rationale         TEXT        NOT NULL DEFAULT '',
+  metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT claim_evidence_unique UNIQUE (claim_id, evidence_span_id, stance),
+  CONSTRAINT claim_evidence_confidence_range CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT claim_evidence_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_claim ON claim_evidence(claim_id, stance);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_span ON claim_evidence(evidence_span_id);
+CREATE INDEX IF NOT EXISTS idx_claim_evidence_source_item ON claim_evidence(source_item_id) WHERE source_item_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS claim_edges (
+  id             BIGSERIAL PRIMARY KEY,
+  from_claim_id  BIGINT      NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  to_claim_id    BIGINT      NOT NULL REFERENCES claims(id) ON DELETE CASCADE,
+  edge_type      TEXT        NOT NULL,
+  confidence     DOUBLE PRECISION NOT NULL DEFAULT 1,
+  metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT claim_edges_unique UNIQUE (from_claim_id, to_claim_id, edge_type),
+  CONSTRAINT claim_edges_not_self CHECK (from_claim_id <> to_claim_id),
+  CONSTRAINT claim_edges_confidence_range CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT claim_edges_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_claim_edges_from ON claim_edges(from_claim_id, edge_type);
+CREATE INDEX IF NOT EXISTS idx_claim_edges_to ON claim_edges(to_claim_id, edge_type);
+
+CREATE TABLE IF NOT EXISTS memory_atoms (
+  id                BIGSERIAL PRIMARY KEY,
+  source_id         TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  atom_type         TEXT        NOT NULL,
+  content           TEXT        NOT NULL,
+  confidence        DOUBLE PRECISION NOT NULL DEFAULT 0,
+  salience          DOUBLE PRECISION NOT NULL DEFAULT 0,
+  entity_id         BIGINT      REFERENCES entities(id) ON DELETE SET NULL,
+  episode_id        BIGINT      REFERENCES episodes(id) ON DELETE SET NULL,
+  claim_id          BIGINT      REFERENCES claims(id) ON DELETE SET NULL,
+  source_item_id    BIGINT      REFERENCES source_items(id) ON DELETE SET NULL,
+  evidence_span_id  BIGINT      REFERENCES evidence_spans(id) ON DELETE SET NULL,
+  valid_at          TIMESTAMPTZ,
+  obsolete_at       TIMESTAMPTZ,
+  metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT memory_atoms_confidence_range CHECK (confidence >= 0 AND confidence <= 1),
+  CONSTRAINT memory_atoms_salience_range CHECK (salience >= 0 AND salience <= 1),
+  CONSTRAINT memory_atoms_time_order CHECK (valid_at IS NULL OR obsolete_at IS NULL OR valid_at <= obsolete_at),
+  CONSTRAINT memory_atoms_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_memory_atoms_source_type ON memory_atoms(source_id, atom_type);
+CREATE INDEX IF NOT EXISTS idx_memory_atoms_salience ON memory_atoms(salience DESC);
+CREATE INDEX IF NOT EXISTS idx_memory_atoms_claim ON memory_atoms(claim_id) WHERE claim_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memory_atoms_entity ON memory_atoms(entity_id) WHERE entity_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_memory_atoms_episode ON memory_atoms(episode_id) WHERE episode_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS scout_runs (
+  id             BIGSERIAL PRIMARY KEY,
+  source_id      TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  run_key        TEXT        NOT NULL,
+  scout_type     TEXT        NOT NULL DEFAULT 'topic',
+  status         TEXT        NOT NULL DEFAULT 'pending',
+  started_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  completed_at   TIMESTAMPTZ,
+  query          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  summary        TEXT        NOT NULL DEFAULT '',
+  metadata       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT scout_runs_key_unique UNIQUE (source_id, run_key),
+  CONSTRAINT scout_runs_time_order CHECK (completed_at IS NULL OR started_at <= completed_at),
+  CONSTRAINT scout_runs_query_object CHECK (jsonb_typeof(query) = 'object'),
+  CONSTRAINT scout_runs_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_scout_runs_status ON scout_runs(status, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scout_runs_source ON scout_runs(source_id, started_at DESC);
+
+CREATE TABLE IF NOT EXISTS scout_observations (
+  id                BIGSERIAL PRIMARY KEY,
+  scout_run_id      BIGINT      NOT NULL REFERENCES scout_runs(id) ON DELETE CASCADE,
+  source_item_id    BIGINT      REFERENCES source_items(id) ON DELETE SET NULL,
+  evidence_span_id  BIGINT      REFERENCES evidence_spans(id) ON DELETE SET NULL,
+  observation_type  TEXT        NOT NULL DEFAULT 'signal',
+  observation_text  TEXT        NOT NULL,
+  score             DOUBLE PRECISION NOT NULL DEFAULT 0,
+  metadata          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT scout_observations_score_range CHECK (score >= 0 AND score <= 1),
+  CONSTRAINT scout_observations_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_scout_observations_run ON scout_observations(scout_run_id, score DESC);
+CREATE INDEX IF NOT EXISTS idx_scout_observations_span ON scout_observations(evidence_span_id) WHERE evidence_span_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_scout_observations_source_item ON scout_observations(source_item_id) WHERE source_item_id IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS surfacing_candidates (
+  id              BIGSERIAL PRIMARY KEY,
+  source_id       TEXT        NOT NULL DEFAULT 'default' REFERENCES sources(id) ON DELETE CASCADE,
+  memory_atom_id  BIGINT      REFERENCES memory_atoms(id) ON DELETE CASCADE,
+  claim_id        BIGINT      REFERENCES claims(id) ON DELETE CASCADE,
+  entity_id       BIGINT      REFERENCES entities(id) ON DELETE SET NULL,
+  episode_id      BIGINT      REFERENCES episodes(id) ON DELETE SET NULL,
+  source_item_id  BIGINT      REFERENCES source_items(id) ON DELETE SET NULL,
+  candidate_type  TEXT        NOT NULL,
+  reason          TEXT        NOT NULL DEFAULT '',
+  score           DOUBLE PRECISION NOT NULL DEFAULT 0,
+  status          TEXT        NOT NULL DEFAULT 'pending',
+  surfaced_at     TIMESTAMPTZ,
+  expires_at      TIMESTAMPTZ,
+  metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT surfacing_candidates_score_range CHECK (score >= 0 AND score <= 1),
+  CONSTRAINT surfacing_candidates_time_order CHECK (surfaced_at IS NULL OR expires_at IS NULL OR surfaced_at <= expires_at),
+  CONSTRAINT surfacing_candidates_metadata_object CHECK (jsonb_typeof(metadata) = 'object')
+);
+CREATE INDEX IF NOT EXISTS idx_surfacing_candidates_status ON surfacing_candidates(status, score DESC);
+CREATE INDEX IF NOT EXISTS idx_surfacing_candidates_memory_atom ON surfacing_candidates(memory_atom_id) WHERE memory_atom_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_surfacing_candidates_claim ON surfacing_candidates(claim_id) WHERE claim_id IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_surfacing_candidates_source ON surfacing_candidates(source_id, created_at DESC);
+
 -- NOTIFY trigger for real-time job events (Postgres only, not PGLite)
 CREATE OR REPLACE FUNCTION notify_minion_job_change() RETURNS trigger AS \$\$
 BEGIN
@@ -663,6 +919,18 @@ BEGIN
     ALTER TABLE subagent_tool_executions ENABLE ROW LEVEL SECURITY;
     ALTER TABLE subagent_rate_leases ENABLE ROW LEVEL SECURITY;
     ALTER TABLE gbrain_cycle_locks ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE source_items ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE evidence_spans ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE episodes ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE entities ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE entity_mentions ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE claims ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE claim_evidence ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE claim_edges ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE memory_atoms ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE scout_runs ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE scout_observations ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE surfacing_candidates ENABLE ROW LEVEL SECURITY;
     RAISE NOTICE 'RLS enabled on all tables (role % has BYPASSRLS)', current_user;
   ELSE
     RAISE WARNING 'Skipping RLS: role % does not have BYPASSRLS privilege. Run as postgres role to enable.', current_user;

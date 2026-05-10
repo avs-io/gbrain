@@ -1,5 +1,5 @@
 import type { EvidenceWindow } from './types.ts';
-import type { QueryFrame } from './synthesis-dsl.ts';
+import type { QueryFrame, RequestedAspect } from './synthesis-dsl.ts';
 
 export type EvidenceSignalRole =
   | 'relationship_positive_signal'
@@ -21,30 +21,48 @@ export type SignalKind = 'sentence' | 'line' | 'bullet' | 'list_item' | 'numeric
 export interface EvidenceSignal {
   id: string;
   evidenceId: string;
+  /** Stable source episode key used by downstream slot clustering. */
+  sourceEpisode: string;
+  /** Best-effort source/event date used by downstream slot clustering. */
+  sourceDate?: string;
   role: EvidenceSignalRole;
   confidence: SignalConfidence;
   kind: SignalKind;
   text: string;
+  speaker: EvidenceWindow['source']['speaker'];
+  authority: EvidenceWindow['source']['authority'];
   sourceOrder: number;
   localOrder: number;
   score: number;
+  queryOverlapTerms: string[];
+  aspectOverlap: RequestedAspect[];
+  safeListed: boolean;
+}
+
+export interface EvidenceRoleRule {
+  role: EvidenceSignalRole;
+  include: RegExp[];
+  exclude?: RegExp[];
+  aspects?: string[];
+  confidence: SignalConfidence;
+  baseScore: number;
 }
 
 const INCIDENT_KEYWORDS = /\b(?:friction|toxic|incident|incidents|time[- ]policing|work[- ]expectation|work expectations|dread|fear|kid|kids|children|not told|didn't tell|did not tell)\b/i;
 const POSITIVE_RELATIONSHIP_ONLY = /\b(?:trust|thank|formative|meaningful|shaped|clarity|rigor|conviction|support|mentor|helped|valued)\b/i;
 
-const ROLE_PATTERNS: Array<[EvidenceSignalRole, RegExp[]]> = [
-  ['relationship_positive_signal', [POSITIVE_RELATIONSHIP_ONLY]],
-  ['relationship_friction_signal', [INCIDENT_KEYWORDS]],
-  ['decision_option', [/\b(?:option|idea|build|attempt|wedge|rail|module|stack|protocol|regimen|before|initial(?:ly)?)\b/i]],
-  ['decision_rationale', [/\b(?:because|why|rationale|reason|due to|as the|isn't|is not|was not|wasn't|was too|too static|job isn|stronger|easier|better direction|risks?|lack of|customer|incumbents?|absorb|leverage)\b/i]],
-  ['deprioritization_signal', [/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|shift(?:ed)? away|not enough|zero network lock-in|low gravity|risks becoming|dead ev|lack of real leverage)\b/i]],
-  ['later_path_signal', [/\b(?:later|after|then|subsequently|eventually|became|becomes|rides on|pivot(?:ed)?|shift(?:ed)? to|move(?:d)? to|better direction|current(?:ly)?)\b/i]],
-  ['protocol_item', [/\b(?:stack|protocol|regimen|supplement|taken daily|vitamin|mg\b|iu\b|metformin|magnesium|protein|daily|bid|creatine|probiotics|iron)\b/i]],
-  ['protocol_change', [/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to|to \d+\s*mg)\b/i]],
-  ['measurement', [/\b\d+(?:\.\d+)?\s*(?:mg|g|iu|ng\/ml|w|weeks?|%|x|bid|daily)?\b/i, /\b(?:score|metric|measurement|count|hb|fgr|lab|level|window)\b/i]],
-  ['clinical_or_operational_reasoning', [/\b(?:fetal|maternal|clinical|operational|process(?:es)?|throughput|provenance|control|correctness|network|settlement|arbitration|chargeback|escrow|policy|leverage|risk|risks|window)\b/i]],
-  ['uncertainty', [/\b(?:maybe|unclear|amorphous|uncertain|not clear|wasn't clear|was not clear|might|could|wondering)\b/i]],
+export const EVIDENCE_ROLE_RULES: EvidenceRoleRule[] = [
+  { role: 'relationship_positive_signal', include: [POSITIVE_RELATIONSHIP_ONLY], exclude: [/\b(?:because|due to|reason|rationale)\b/i], aspects: ['relationship'], confidence: 'medium', baseScore: 4 },
+  { role: 'relationship_friction_signal', include: [INCIDENT_KEYWORDS], aspects: ['relationship', 'incidents'], confidence: 'medium', baseScore: 5 },
+  { role: 'decision_option', include: [/\b(?:option|idea|build|attempt|wedge|rail|module|stack|protocol|regimen|before|initial(?:ly)?)\b/i], aspects: ['prior_state', 'summary'], confidence: 'low', baseScore: 2 },
+  { role: 'decision_rationale', include: [/\b(?:because|why|rationale|reason|due to|as the|isn't|is not|was not|wasn't|was too|too static|job isn|stronger|easier|better direction|risks?|lack of|customer|incumbents?|absorb|leverage)\b/i], aspects: ['rationale'], confidence: 'medium', baseScore: 5 },
+  { role: 'deprioritization_signal', include: [/\b(?:not pursued|dropped|rejected|parked|move(?:d)? away|shift(?:ed)? away|not enough|zero network lock-in|low gravity|risks becoming|dead ev|lack of real leverage)\b/i], aspects: ['change'], confidence: 'medium', baseScore: 6 },
+  { role: 'later_path_signal', include: [/\b(?:later|after|then|subsequently|eventually|became|becomes|rides on|pivot(?:ed)?|shift(?:ed)? to|move(?:d)? to|better direction|current(?:ly)?)\b/i], aspects: ['timeline', 'later_state', 'current_state'], confidence: 'medium', baseScore: 4 },
+  { role: 'protocol_item', include: [/\b(?:stack|protocol|regimen|supplement|taken daily|vitamin|daily|bid|item(?:s)?|capsule(?:s)?|tablet(?:s)?|dose(?:s)?|nutrient(?:s)?)\b|\b\d+(?:\.\d+)?\s*(?:mg|g|iu)\b/i], aspects: ['list_stack'], confidence: 'medium', baseScore: 5 },
+  { role: 'protocol_change', include: [/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to|to \d+\s*mg)\b/i], aspects: ['change'], confidence: 'medium', baseScore: 4 },
+  { role: 'measurement', include: [/\b\d+(?:\.\d+)?\s*(?:mg|g|iu|ng\/ml|w|weeks?|%|x|bid|daily)?\b/i, /\b(?:score|metric|measurement|count|hb|fgr|lab|level|marker|biomarker|window)\b/i], aspects: ['measurement'], confidence: 'medium', baseScore: 3 },
+  { role: 'clinical_or_operational_reasoning', include: [/\b(?:fetal|maternal|clinical|operational|process(?:es)?|throughput|provenance|control|correctness|network|settlement|arbitration|chargeback|escrow|policy|leverage|risk|risks|window)\b/i], aspects: ['rationale'], confidence: 'medium', baseScore: 3 },
+  { role: 'uncertainty', include: [/\b(?:maybe|unclear|amorphous|uncertain|not clear|wasn't clear|was not clear|might|could|wondering)\b/i], aspects: ['rationale'], confidence: 'medium', baseScore: 2 },
 ];
 
 function compact(text: string): string {
@@ -57,11 +75,26 @@ function compact(text: string): string {
     .trim();
 }
 
-function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> {
-  const out: Array<{ text: string; kind: SignalKind }> = [];
+function speakerForLine(raw: string, fallback: Pick<EvidenceWindow['source'], 'speaker' | 'authority'>): Pick<EvidenceSignal, 'speaker' | 'authority'> {
+  const match = raw.match(/^\s*(user|human|chief|aditya|assistant|ai|system)\s*:\s*/i);
+  if (!match) return { speaker: fallback.speaker ?? 'unknown', authority: fallback.authority ?? 'unknown' };
+  const rawSpeaker = match[1].toLowerCase();
+  if (rawSpeaker === 'assistant' || rawSpeaker === 'ai') return { speaker: 'assistant', authority: /\b(?:accepted|confirmed|correct|agree|agreed)\b/i.test(raw) ? 'accepted_assistant_claim' : 'assistant_proposal' };
+  if (rawSpeaker === 'system') return { speaker: 'system', authority: 'system' };
+  return { speaker: 'user', authority: 'user_statement' };
+}
+
+function stripSpeakerPrefix(text: string): string {
+  return text.replace(/^\s*(?:user|human|chief|aditya|assistant|ai|system)\s*:\s*/i, '');
+}
+
+function splitSignals(window: EvidenceWindow): Array<{ text: string; kind: SignalKind; speaker: EvidenceSignal['speaker']; authority: EvidenceSignal['authority'] }> {
+  const quote = window.quote;
+  const out: Array<{ text: string; kind: SignalKind; speaker: EvidenceSignal['speaker']; authority: EvidenceSignal['authority'] }> = [];
   const rawLines = quote.replace(/\r\n?/g, '\n').split('\n');
   for (const raw of rawLines) {
-    const line = compact(raw.replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, ''));
+    const speaker = speakerForLine(raw, window.source);
+    const line = compact(stripSpeakerPrefix(raw).replace(/^[-*•]\s+/, '').replace(/^Claim:\s*/i, '').replace(/^Agree:\s*/i, ''));
     if (!line) continue;
     const bullet = /^\s*[-*•]/.test(raw);
     const sentenceCandidates = line
@@ -75,7 +108,7 @@ function splitSignals(quote: string): Array<{ text: string; kind: SignalKind }> 
       if (/\d/.test(text)) return 'numeric';
       return bullet ? 'bullet' : sentenceCandidates.length > 1 ? 'sentence' : 'line';
     };
-    for (const segment of segments) out.push({ text: segment, kind: kindFor(segment) });
+    for (const segment of segments) out.push({ text: segment, kind: kindFor(segment), ...speaker });
   }
   return out;
 }
@@ -92,6 +125,45 @@ function relevance(text: string, terms: Set<string>): number {
   let hits = 0;
   for (const term of terms) if (lower.includes(term)) hits += 1;
   return hits;
+}
+
+function matchingTerms(text: string, terms: Set<string>): string[] {
+  const lower = text.toLowerCase();
+  return [...terms].filter(term => lower.includes(term)).sort();
+}
+
+const ROLE_ASPECTS: Record<EvidenceSignalRole, RequestedAspect[]> = {
+  relationship_positive_signal: ['relationship'],
+  relationship_friction_signal: ['relationship', 'incidents'],
+  decision_option: ['prior_state', 'summary'],
+  decision_rationale: ['rationale'],
+  deprioritization_signal: ['change', 'rationale'],
+  later_path_signal: ['timeline', 'later_state', 'current_state', 'change'],
+  protocol_item: ['list_stack'],
+  protocol_change: ['change', 'timeline'],
+  measurement: ['measurement'],
+  clinical_or_operational_reasoning: ['rationale'],
+  uncertainty: ['rationale'],
+  distractor: [],
+};
+
+function overlappingAspects(role: EvidenceSignalRole, frame: QueryFrame): RequestedAspect[] {
+  const requested = new Set(frame.requestedAspects);
+  return (ROLE_ASPECTS[role] ?? []).filter(aspect => requested.has(aspect)).sort();
+}
+
+function isSafeListedSignal(role: EvidenceSignalRole, text: string, frame: QueryFrame): boolean {
+  if (role === 'measurement') return /\b\d+(?:\.\d+)?\s*(?:mg|g|iu|ng\/ml|w|weeks?|%|x|bid|daily)?\b|\b(?:score|metric|measurement|count|lab|level|marker|biomarker)\b/i.test(text);
+  if (role === 'protocol_item') return isStackQuestion(frame) && /\b(?:stack|protocol|regimen|supplement|vitamin|daily|bid|capsule(?:s)?|tablet(?:s)?|dose(?:s)?)\b|\b\d+(?:\.\d+)?\s*(?:mg|g|iu)\b/i.test(text);
+  if (role === 'relationship_positive_signal' || role === 'relationship_friction_signal') return frame.requestedAspects.includes('relationship') || frame.requestedAspects.includes('incidents');
+  if (role === 'decision_rationale' || role === 'clinical_or_operational_reasoning' || role === 'uncertainty') return frame.requestedAspects.includes('rationale') && /\b(?:because|why|reason|rationale|due to|risk|unclear|not clear)\b/i.test(text);
+  if (role === 'deprioritization_signal') return (frame.requestedAspects.includes('change') || frame.requestedAspects.includes('rationale')) && /\b(?:not pursued|dropped|rejected|parked|shift(?:ed)? away|low gravity|lack of real leverage|zero network lock-in)\b/i.test(text);
+  if (role === 'later_path_signal' || role === 'protocol_change') return frame.requestedAspects.some(aspect => ['timeline', 'later_state', 'current_state', 'change'].includes(aspect)) && /\b(?:later|after|then|became|becomes|pivot(?:ed)?|shift(?:ed)?|current|changed?|switch(?:ed|ing)?)\b/i.test(text);
+  return false;
+}
+
+function passesOverlapGate(role: EvidenceSignalRole, queryOverlapTerms: string[], aspectOverlap: RequestedAspect[], safeListed: boolean): boolean {
+  return role === 'distractor' || queryOverlapTerms.length > 0 || aspectOverlap.length > 0 || safeListed;
 }
 
 const ROLE_PRIORITY: EvidenceSignalRole[] = [
@@ -121,7 +193,7 @@ function isMeasurementDominant(text: string): boolean {
   const lowered = text.toLowerCase();
   const numericHits = (lowered.match(/\b\d+(?:\.\d+)?\b/g) ?? []).length;
   const measurementHits = (lowered.match(/\b(?:score|metric|measurement|count|hb|fgr|lab|level|window|ng\/ml|mg|g|iu|%|weeks?|w|daily|bid)\b/g) ?? []).length;
-  const protocolHits = (lowered.match(/\b(?:stack|protocol|regimen|supplement|vitamin|metformin|magnesium|protein|creatine|probiotics|iron|bisglycinate|ascorbate)\b/g) ?? []).length;
+  const protocolHits = (lowered.match(/\b(?:stack|protocol|regimen|supplement|vitamin|capsule(?:s)?|tablet(?:s)?|dose(?:s)?|nutrient(?:s)?|mg|iu|bid|daily)\b/g) ?? []).length;
   return (numericHits + measurementHits) >= 4 && protocolHits === 0;
 }
 
@@ -138,16 +210,18 @@ function classifyRole(text: string, frame: QueryFrame, terms: Set<string>): { ro
     return { role: 'relationship_positive_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
   }
   if (/\b(?:shift(?:ing|ed)?|switch(?:ing|ed)?|instead of|changed?|replace(?:d)?|from .+ to)\b/i.test(text)) return { role: 'protocol_change', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
-  if (stackQuestion && /\b(?:stack|protocol|regimen|supplement|taken daily|iron push|vitamin|metformin|magnesium|protein|creatine|probiotics)\b/i.test(text)) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
-  if (/\b(?:later|became|becomes|rides on|current|current state|stronger base|module)\b/i.test(text)) return { role: 'later_path_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
+  if (isMeasurementDominant(text) || /\b(?:score|metric|measurement|count|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
+  if (stackQuestion && (/\b(?:stack|protocol|regimen|supplement|taken daily|vitamin|daily|bid|capsule(?:s)?|tablet(?:s)?|dose(?:s)?|nutrient(?:s)?)\b|\b\d+(?:\.\d+)?\s*(?:mg|g|iu)\b/i.test(text) || (text.includes(',') && !isMeasurementDominant(text) && /[A-Z][a-z]+/.test(text)))) return { role: 'protocol_item', confidence: rel > 0 ? 'high' : 'medium', score: rel + 5 };
+  if (/\b(?:later|became|becomes|rides on|current|current state|active|inactive|dormant|ongoing|still|no longer|stronger base|module)\b/i.test(text)) return { role: 'later_path_signal', confidence: rel > 0 ? 'high' : 'medium', score: rel + 4 };
   if (isMeasurementDominant(text) || /\b(?:score|metric|measurement|count|hb|fgr|lab|level|\d+(?:\.\d+)?\s*(?:ng\/ml|%|weeks?|w))\b/i.test(text)) return { role: 'measurement', confidence: rel > 0 ? 'high' : 'medium', score: rel + 3 };
   let bestRole: EvidenceSignalRole | null = null;
   let best = 0;
-  for (const [role, patterns] of ROLE_PATTERNS) {
-    const score = patterns.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0);
-    if (score > best || (score === best && score > 0 && bestRole && rolePriority(role) < rolePriority(bestRole))) {
+  for (const rule of EVIDENCE_ROLE_RULES) {
+    if (rule.exclude?.some(pattern => pattern.test(text))) continue;
+    const score = rule.include.reduce((sum, pattern) => sum + (pattern.test(text) ? 1 : 0), 0);
+    if (score > best || (score === best && score > 0 && bestRole && rolePriority(rule.role) < rolePriority(bestRole))) {
       best = score;
-      bestRole = role;
+      bestRole = rule.role;
     }
   }
   if (!bestRole) return { role: rel > 0 || frame.requestedAspects.includes('summary') ? 'decision_option' : 'distractor', confidence: rel > 1 ? 'medium' : 'low', score: rel };
@@ -163,19 +237,41 @@ export function classifyEvidenceSignals(evidence: EvidenceWindow[], frame: Query
   const terms = queryTerms(frame);
   const signals: EvidenceSignal[] = [];
   for (const [sourceOrder, window] of evidence.entries()) {
-    const chunks = splitSignals(window.quote);
+    const chunks = splitSignals(window);
     chunks.forEach((chunk, localOrder) => {
-      const classified = classifyRole(chunk.text, frame, terms);
+      let classified = classifyRole(chunk.text, frame, terms);
+      let queryOverlapTerms = matchingTerms(chunk.text, terms);
+      let aspectOverlap = overlappingAspects(classified.role, frame);
+      let safeListed = isSafeListedSignal(classified.role, chunk.text, frame);
+      if (!passesOverlapGate(classified.role, queryOverlapTerms, aspectOverlap, safeListed)) {
+        classified = { role: 'distractor', confidence: 'low', score: Math.min(classified.score, 1) };
+        queryOverlapTerms = [];
+        aspectOverlap = [];
+        safeListed = false;
+      }
+      if (chunk.authority === 'assistant_proposal') {
+        classified = { role: 'distractor', confidence: 'low', score: Math.min(classified.score, 1) };
+        queryOverlapTerms = [];
+        aspectOverlap = [];
+        safeListed = false;
+      }
       signals.push({
         id: `sig_${sourceOrder + 1}_${localOrder + 1}`,
         evidenceId: window.id,
+        sourceEpisode: window.source.slug || window.source.id,
+        sourceDate: window.source.date,
         role: classified.role,
         confidence: classified.confidence,
         kind: chunk.kind,
         text: chunk.text,
+        speaker: chunk.speaker,
+        authority: chunk.authority,
         sourceOrder,
         localOrder,
         score: classified.score,
+        queryOverlapTerms,
+        aspectOverlap,
+        safeListed,
       });
     });
   }
